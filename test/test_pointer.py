@@ -163,8 +163,8 @@ class RuntimeTests(unittest.TestCase):
         sysfs_with(self.root, "hidraw8", ["Logitech MX Master 3S"])
         sysfs_with(self.root, "hidraw7", ["Logitech G305"])
         self.devices = [
-            {"id": "748DEB1B", "kind": "mouse", "path": "/dev/hidraw8", "online": True, "settings": [{"name": "dpi", "value": 850}]},
-            {"id": "57CF710E", "kind": "mouse", "path": "/dev/hidraw7", "online": False, "settings": []},
+            {"id": "A1B2C3D4", "kind": "mouse", "path": "/dev/hidraw8", "online": True, "settings": [{"name": "dpi", "value": 850}]},
+            {"id": "E5F6A7B8", "kind": "mouse", "path": "/dev/hidraw7", "online": False, "settings": []},
             {"id": "KBD", "kind": "keyboard", "path": "/dev/hidraw2", "online": True, "settings": []},
         ]
         os.environ["HYPRLAND_INSTANCE_SIGNATURE"] = "test-signature"
@@ -187,7 +187,7 @@ class RuntimeTests(unittest.TestCase):
 
     def test_apply_revert_and_dpi_rescale(self):
         rt, ipc, events = self.runtime()
-        prefs = {"748DEB1B": {"acceleration": "mac"}}
+        prefs = {"A1B2C3D4": {"acceleration": "mac"}}
         self.assertTrue(rt.sync(self.devices, prefs))
         self.assertEqual(ipc.evals(), [mxpointer.lua_device_config("logitech-mx-master-3s", mxpointer.mac_curve(850))])
         self.assertTrue(events.connected)
@@ -215,7 +215,7 @@ class RuntimeTests(unittest.TestCase):
 
     def test_shutdown_reverts_everything(self):
         rt, ipc, events = self.runtime()
-        rt.sync(self.devices, {"748DEB1B": {"acceleration": "mac"}, "57CF710E": {"acceleration": "mac"}})
+        rt.sync(self.devices, {"A1B2C3D4": {"acceleration": "mac"}, "E5F6A7B8": {"acceleration": "mac"}})
         self.assertEqual(sorted(rt.applied), ["logitech-g305-1", "logitech-mx-master-3s"])
         ipc.requests.clear()
         rt.shutdown()
@@ -226,19 +226,19 @@ class RuntimeTests(unittest.TestCase):
 
     def test_reports_missing_mouse_force_no_accel_and_rejections(self):
         rt, ipc, _ = self.runtime(mice=())
-        rt.sync(self.devices, {"748DEB1B": {"acceleration": "mac"}})
-        self.assertEqual(rt.status()["missing"], ["748DEB1B"])
+        rt.sync(self.devices, {"A1B2C3D4": {"acceleration": "mac"}})
+        self.assertEqual(rt.status()["missing"], ["A1B2C3D4"])
         self.assertIn("reconnect", rt.status()["error"])
         rt, ipc, _ = self.runtime(force_no_accel=True)
-        rt.sync(self.devices, {"748DEB1B": {"acceleration": "mac"}})
+        rt.sync(self.devices, {"A1B2C3D4": {"acceleration": "mac"}})
         self.assertIn("force_no_accel", rt.status()["error"])
         rt, ipc, _ = self.runtime(reject=True)
-        rt.sync(self.devices, {"748DEB1B": {"acceleration": "mac"}})
+        rt.sync(self.devices, {"A1B2C3D4": {"acceleration": "mac"}})
         self.assertIn("rejected", rt.status()["error"])
         self.assertEqual(rt.applied, {})
         # A failed apply is retried on the next sync instead of being cached.
         ipc.reject = False
-        rt.sync(self.devices, {"748DEB1B": {"acceleration": "mac"}})
+        rt.sync(self.devices, {"A1B2C3D4": {"acceleration": "mac"}})
         self.assertEqual(rt.applied, {"logitech-mx-master-3s": mxpointer.mac_curve(850)})
         self.assertEqual(rt.status()["error"], "")
 
@@ -252,7 +252,7 @@ class RuntimeTests(unittest.TestCase):
     def test_unavailable_hyprland(self):
         os.environ.pop("HYPRLAND_INSTANCE_SIGNATURE", None)
         rt, ipc, _ = self.runtime()
-        rt.sync(self.devices, {"748DEB1B": {"acceleration": "mac"}})
+        rt.sync(self.devices, {"A1B2C3D4": {"acceleration": "mac"}})
         self.assertEqual(ipc.requests, [])
         self.assertIn("not running", rt.status()["error"])
 
@@ -307,15 +307,15 @@ class StoreAndProfileTests(unittest.TestCase):
 
     def test_prefs_roundtrip_and_cleanup(self):
         self.assertEqual(mxctl.load_pointer_prefs(), {"version": 1, "devices": {}})
-        mxctl.set_pointer_pref("748DEB1B", "mac")
+        mxctl.set_pointer_pref("A1B2C3D4", "mac")
         path = mxctl.pointer_file()
         self.assertTrue(path.is_file())
         self.assertEqual(oct(path.stat().st_mode & 0o777), "0o600")
-        self.assertEqual(mxctl.load_pointer_prefs()["devices"], {"748DEB1B": {"acceleration": "mac"}})
-        self.assertEqual(mxctl.pointer_pref(mxctl.load_pointer_prefs(), "748DEB1B"), {"acceleration": "mac"})
+        self.assertEqual(mxctl.load_pointer_prefs()["devices"], {"A1B2C3D4": {"acceleration": "mac"}})
+        self.assertEqual(mxctl.pointer_pref(mxctl.load_pointer_prefs(), "A1B2C3D4"), {"acceleration": "mac"})
         self.assertEqual(mxctl.pointer_pref(mxctl.load_pointer_prefs(), "other"), {"acceleration": "system"})
         # "system" is the absence of an override; the file goes away with it.
-        mxctl.set_pointer_pref("748DEB1B", "system")
+        mxctl.set_pointer_pref("A1B2C3D4", "system")
         self.assertFalse(path.exists())
         self.assertFalse(mxctl.discover_payload().get("hasPointer"))
 
@@ -338,7 +338,7 @@ class StoreAndProfileTests(unittest.TestCase):
 
     def test_pointer_set_validates(self):
         class Dev:
-            serial = "748DEB1B"
+            serial = "A1B2C3D4"
             unitId = ""
             path = "/dev/hidraw8"
             name = "MX Master 3S"
@@ -353,10 +353,10 @@ class StoreAndProfileTests(unittest.TestCase):
             codename = "MX Keys"
             kind = "keyboard"
 
-        mxctl.pointer_set([Dev()], {"device": "748DEB1B", "acceleration": "mac"})
-        self.assertEqual(mxctl.load_pointer_prefs()["devices"], {"748DEB1B": {"acceleration": "mac"}})
+        mxctl.pointer_set([Dev()], {"device": "A1B2C3D4", "acceleration": "mac"})
+        self.assertEqual(mxctl.load_pointer_prefs()["devices"], {"A1B2C3D4": {"acceleration": "mac"}})
         with self.assertRaises(ValueError):
-            mxctl.pointer_set([Dev()], {"device": "748DEB1B", "acceleration": "turbo"})
+            mxctl.pointer_set([Dev()], {"device": "A1B2C3D4", "acceleration": "turbo"})
         with self.assertRaises(RuntimeError):
             mxctl.pointer_set([Dev()], {"device": "missing", "acceleration": "mac"})
         with self.assertRaises(ValueError):

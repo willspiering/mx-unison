@@ -36,4 +36,6 @@ Local profiles retain inherited limitations: names are global, kind-based UI fil
 
 [Options parity review](options-parity-review.md) and [performance/stability review](performance-stability-review.md) are inherited engineering notes from MX Control. They explain prior decisions and limitations; they are not fresh measurements or validation of MX Unison. Consult the README and changelog for current switching and scroll features.
 
+[Rust/lean-helper plan](rust-plan.md) is a forward-looking proposal for reducing the resident footprint.
+
 External reference links are documented in the README for maintainers. They are not contacted by the plugin during normal operation.

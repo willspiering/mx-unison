@@ -114,7 +114,7 @@ class RuntimeDirTests(unittest.TestCase):
         # The shell sends the JSON over stdin so it never shows in /proc argv.
         proc = subprocess.run(
             [sys.executable, str(HELPER), "write-cmd"],
-            input=json.dumps({"op": "pointer-set", "device": "748DEB1B", "acceleration": "mac"}) + "\n",
+            input=json.dumps({"op": "pointer-set", "device": "A1B2C3D4", "acceleration": "mac"}) + "\n",
             capture_output=True, text=True, env=os.environ.copy(),
         )
         self.assertEqual(proc.returncode, 0, proc.stderr)

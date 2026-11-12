@@ -1,78 +1,158 @@
 # MX Unison
 
-A local Logitech device controller for the Omarchy shell, with coordinated host switching for compatible mice and keyboards. Configure supported device settings, choose a group, and move that group to another paired computer with a button or keyboard shortcut.
+**Logitech MX mouse and keyboard settings for [Omarchy](https://omarchy.org), plus one-press Easy-Switch for the whole desk.**
 
-MX Unison runs inside Omarchy’s existing Quickshell process. It uses Solaar’s HID++ library for device access and Hyprland for local software actions. It has no AI features, cloud account, telemetry, or periodic Internet access.
+MX Unison is an Omarchy shell plugin that does two jobs:
 
-**Status:** early development, version 0.1.0. Coordinated switching is implemented and unit-tested; end-to-end host switching still needs hardware validation. Physical Easy-Switch following is experimental and requires compatible firmware. This is not complete Logi Options+ feature parity.
+1. **Configures Logitech devices on Linux.** DPI, SmartShift, scroll direction and speed, thumb wheel, button remaps, gestures, per-app shortcuts, keyboard function-key mode and backlight: the settings people usually need Logi Options+ for, which does not run on Linux.
+2. **Moves your mouse and keyboard to another computer together.** Logitech's Easy-Switch buttons switch one device at a time. If you share a mouse and keyboard between a Linux desktop and a laptop, you normally press a channel button on each device. MX Unison switches the whole group with one button, one keyboard shortcut or, experimentally, by following the keyboard's own Easy-Switch button.
 
-## Features and compatibility
+It runs inside Omarchy's existing Quickshell bar, talks to devices locally over HID++ through [Solaar](https://github.com/pwr-Solaar/Solaar)'s library, and has no cloud account, telemetry, AI features or network access.
 
-| Feature | Availability |
+> **Status: early development (0.1.0).** Device settings work on the hardware they have been tried on. Coordinated switching is implemented and unit-tested but has **not yet been validated end-to-end on real hardware**. Physical Easy-Switch following is experimental. This is not full Logi Options+ parity. See [Limitations](#limitations).
+
+## Contents
+
+- [Who it is for](#who-it-is-for)
+- [Features](#features)
+- [How it works](#how-it-works)
+- [Requirements](#requirements)
+- [Install](#install)
+- [Using it](#using-it)
+- [Switching a group of devices](#switching-a-group-of-devices)
+- [Files, configuration and privacy](#files-configuration-and-privacy)
+- [Troubleshooting](#troubleshooting)
+- [Limitations](#limitations)
+- [Uninstall](#uninstall)
+- [Roadmap](#roadmap)
+- [Development](#development)
+- [Credits and license](#credits-and-license)
+
+## Who it is for
+
+- You run **Omarchy 4** (Hyprland with the Quickshell-based `omarchy-shell`).
+- You own a **Logitech MX-series mouse and/or keyboard** (MX Master, MX Anywhere, MX Vertical, MX Ergo, MX Keys and similar), connected over Bluetooth or a Logi Bolt / Unifying receiver.
+- You want to change device settings from the desktop instead of booting Windows/macOS or editing Solaar rules by hand.
+- You share one mouse and keyboard between several computers and want them to move together.
+
+If you only want hardware settings and do not use Omarchy, use Solaar directly.
+
+## Features
+
+| Feature | What you get | Notes |
+| --- | --- | --- |
+| Device list and battery | Connection type, online state, battery level in the bar | Bluetooth and supported Logitech receivers |
+| Pointer hardware | DPI, SmartShift, wheel direction and resolution, thumb wheel | Only controls the device reports |
+| Per-mouse scroll speed | Scroll factor for that mouse only | Applied through Hyprland; touchpads are untouched |
+| Pointer acceleration | Optional macOS-style acceleration curve per mouse | Applied at runtime through Hyprland |
+| Button remaps | Hardware remaps between supported controls | Stored on the device |
+| Software actions | Map a button or directional gesture to a shortcut, or a sequence of up to eight shortcuts, optionally per application | Matches Hyprland window classes exactly; needs the helper running |
+| Keyboard | Function-key mode, platform layout, backlight | When exposed by firmware; arbitrary F-row remapping is not guaranteed |
+| Profiles | Save and re-apply a snapshot of a device's settings | Local, manual; applied without rollback |
+| Easy-Switch host names | View and rename the paired-host labels stored on a device | |
+| **Coordinated switching** | Move a group of devices to target 1, 2 or 3 at once | Per-device channel mapping; mice first, keyboard last |
+| **Physical Easy-Switch following** | Pressing the keyboard's channel button moves the rest of the group | Experimental; needs CHANGE_HOST feature version 2 |
+
+MX-series devices are the primary scope. A supported receiver does not mean every peripheral attached to it is supported. Firmware, connection method, permissions and sleep state all affect which controls appear.
+
+Out of scope today: firmware updates, receiver pairing management, Logitech Flow, cloud sync and the full Smart Actions workflow.
+
+## How it works
+
+```
+ Omarchy shell (Quickshell, already running)
+ ├── Bar widget + popup panel + settings window   (QML, this plugin)
+ └── Service.qml ── starts on demand ──►  mxctl.py serve   (system Python helper)
+                                          ├── Solaar's logitech_receiver library ──► HID++ ──► devices
+                                          ├── Hyprland IPC socket  (scroll, acceleration, shortcuts)
+                                          └── $XDG_RUNTIME_DIR/mx-unison/status.json  ──► UI
+```
+
+- **No extra shell or system service.** The UI loads in the Quickshell process Omarchy already runs. There is no systemd unit and nothing runs as root.
+- **The helper is a single Python process** (`mxctl.py serve`). It owns all HID++ handles, applies writes one at a time on a single command thread, and publishes a JSON snapshot that the UI watches. The UI sends it commands through private files in the runtime directory.
+- **Hardware settings live on the device.** DPI, SmartShift, remaps, function-key mode, backlight and host channels are written to the device and stay there, even with the helper stopped or the device moved to another computer.
+- **Software features need the helper running.** Software actions and gestures, pointer acceleration, per-mouse scroll speed and physical Easy-Switch following are applied or listened for live. They work only while the helper runs.
+
+### When the helper runs
+
+| Situation | What runs |
 | --- | --- |
-| Device discovery, connection and battery status | Bluetooth and supported Logitech receivers; device support depends on Solaar and discovery filters |
-| DPI, SmartShift, wheel direction and resolution, thumb wheel | When reported by the device |
-| Per-mouse scroll speed | Local Hyprland scroll factor; does not change touchpad settings |
-| Pointer acceleration | Optional local macOS-style acceleration curve |
-| Hardware remaps, software shortcuts and directional gestures | Supported controls only; temporary diversion required for software actions |
-| App-specific actions and short shortcut sequences | Exact Hyprland class matching; up to eight shortcut steps |
-| Keyboard function-key mode, platform layout and backlight | When exposed by firmware; arbitrary F-row remapping is not guaranteed |
-| Local profiles | Manual snapshots; compatibility and partial-application caveats apply |
-| Coordinated host switching | Explicit per-device mappings; mice before keyboards |
-| Physical Easy-Switch following | Experimental CHANGE_HOST v2 notification listener; v1 is not supported by this listener |
+| Shell starts, no software features configured | A lightweight sysfs scan (`mxctl.py discover`) every 15 seconds for the bar's device and battery display. The interval is configurable from 10 to 3600 s in the widget settings. No HID++ handles are opened. |
+| You hover the bar icon, open the panel or settings, or change anything | The resident helper starts and does a full HID++ read |
+| Saved software actions, acceleration, scroll speed or physical follow exist | The resident helper starts with the shell, because those features need it |
+| Helper idle | Sleeps on inotify, device and compositor events. Also wakes every 30 s to read battery from sysfs, and every 60 s for a HID++ battery read and heartbeat |
+| Shell exits or the plugin is disabled | The helper stops and restores compositor scroll and acceleration defaults |
 
-MX-series mice and keyboards are the primary scope. A supported Bolt, Unifying, or other receiver does not imply support for every attached Logitech peripheral. Firmware, connection method, permissions and device sleep state affect available controls. Firmware updates, receiver pairing management, Flow, cloud synchronization and the full Smart Actions workflow are outside the current implementation.
+The resident helper uses little CPU when idle. Memory is dominated by Python and Solaar's library, roughly 100 MB resident on a typical setup. Reducing this is the main goal of the [roadmap](#roadmap).
 
 ## Requirements
 
-- Omarchy 4 with its Quickshell shell and Lua-based Hyprland configuration.
-- System Python at `/usr/bin/python3`.
-- Solaar, installed with `omarchy pkg add solaar`.
-- User access to the relevant `/dev/hidraw*` nodes through Solaar’s udev rules.
-- Node.js for development checks, not normal plugin use.
+- **Omarchy 4** with its Quickshell shell and Lua-based Hyprland configuration.
+- **System Python** at `/usr/bin/python3`. A virtualenv or version-manager Python usually cannot see the Arch Solaar package, so the plugin deliberately calls the system interpreter.
+- **Solaar**, installed with `omarchy pkg add solaar`. Without it MX Unison shows devices and batteries only; every setting and switching feature needs Solaar's `logitech_receiver` library. Solaar's GUI does not need to be running.
+- **hidraw access** for your user through Solaar's udev rules (installed with the package).
+- Node.js only for development checks.
 
-System Python is intentional: a virtual environment or version-manager interpreter may not see the Arch Solaar package. Do not run the plugin or its helper as root. If permissions are missing after installation, reconnect the receiver/device or reload the udev rules using the normal system administration tools. Avoid competing tools that configure or divert the same controls.
+Do not run the plugin or helper as root. Avoid running other tools that configure or divert the same controls at the same time, for example Solaar rules acting on the same buttons, logiops, or another Options+ replacement.
 
-## Install from a checkout
+## Install
 
-Clone this repository into a directory you own, then run from its root:
+Clone the repository into a directory you own, then deploy from its root:
 
 ```sh
-omarchy pkg add solaar
-python3 scripts/deploy.py --dry-run
-python3 scripts/deploy.py --enable
+git clone https://github.com/willspiering/mx-unison.git
+cd mx-unison
+omarchy pkg add solaar               # if not installed yet
+python3 scripts/deploy.py --dry-run  # shows exactly what will be copied
+python3 scripts/deploy.py --enable   # copies, rescans plugins, enables the bar widget
 ```
 
-The deployment script copies an explicit set of runtime files into `~/.config/omarchy/plugins/local.mx-unison/`. It backs up an existing installation before replacing files. It does not install packages, add shortcuts, change device settings, or install an extra daemon. Review plugin source before enabling it: Omarchy plugins run unsandboxed as your user.
+The deploy script copies an explicit allowlist of runtime files into `~/.config/omarchy/plugins/local.mx-unison/`. It backs up any existing installation first. It does **not** install packages, add keyboard shortcuts, change device settings or install a daemon.
 
-If Omarchy retains old QML components after an update, run `omarchy restart shell`. This reloads the entire desktop shell, so do it when convenient. See [development and deployment](CONTRIBUTING.md) for backups, rollback and source-versus-installation details.
+Omarchy plugins run unsandboxed as your user. Review the source before enabling it.
 
-## Open and configure
+If Omarchy keeps showing old UI after an update, run `omarchy restart shell`. This reloads the whole desktop shell, so do it at a convenient moment. Backups, rollback and the source-versus-install split are covered in [CONTRIBUTING.md](CONTRIBUTING.md).
 
-Click the plugin’s mouse icon in the bar, then **All settings**, or run:
+## Using it
+
+Click the mouse icon in the bar for the quick panel, then **All settings** for the full window. You can also open it from a terminal or keybinding:
 
 ```sh
 omarchy-shell shell summon local.mx-unison '{}'
 ```
 
-Select a device to see the settings it reports. Changes to supported hardware settings are generally applied immediately; the switch-group editor has an explicit **Save group** button. Profiles and software actions have their own save/apply controls. There is no global undo for device settings.
+Select a device to see the settings it reports.
 
-### Switch a group together
+- Hardware settings apply immediately. There is no global undo.
+- Profiles and software actions have their own save and apply controls.
+- The switch-group editor has an explicit **Save group** button.
 
-1. Pair each device with each destination using its normal pairing process.
-2. Open **Easy Switch** and select the devices to move together.
-3. Map each logical **Target 1/2/3** to the paired channel **1/2/3** on each device. Channel assignments may differ between devices.
-4. Save the group and use **Switch to 1/2/3**.
+If Solaar is missing or your user lacks hidraw permission, the panel offers two buttons. **Install Solaar** opens a terminal running `omarchy pkg add solaar`. **Reload udev** opens a terminal that runs `udevadm control --reload-rules && udevadm trigger` through `sudo`, so you see and approve the command. Neither runs without you clicking it.
 
-For example, target 1 can refer to channel 1 on a keyboard and channel 3 on a mouse. Map the same destination computer, rather than assuming matching channel numbers always mean matching hosts.
+## Switching a group of devices
 
-Every group member must be available and expose `change-host`. The helper preflights members and their channel choices before sending commands, and rejects channels marked unpaired in its latest device snapshot. Snapshot state may be stale. Mice switch first and keyboards last. If a write fails, remaining writes stop and the error reports the number already sent. There is no rollback once a device leaves this computer, and command delivery does not verify arrival at the destination. Current channels are never saved as reconnect preferences.
+### Set up
 
-Switching back requires equivalent software on the computer the devices are leaving, or their physical channel controls. Installing this plugin on one computer does not control devices after they have moved away.
+1. Pair each device with each computer using its normal Easy-Switch pairing process.
+2. In settings, open **Easy Switch** and select the devices that should move together.
+3. For each device, map logical **Target 1 / 2 / 3** to that device's physical channel **1 / 2 / 3**. Each target must use a different channel on a given device.
+4. Click **Save group**, then use **Switch to 1 / 2 / 3**.
+
+Channel numbers may differ between devices. If your laptop is channel 1 on the keyboard but channel 3 on the mouse, map Target 1 to keyboard channel 1 and mouse channel 3. Map targets to destination computers; do not assume equal channel numbers mean the same computer.
+
+### What happens when you switch
+
+1. **Preflight.** Every group member must be online and support `change-host`. The target channel must exist and must not be marked unpaired in the latest device snapshot. If any check fails, nothing is switched.
+2. **Send.** Mice and other devices switch first. The keyboard switches last, so you keep a keyboard until the end.
+3. **Partial failure.** If a write fails, the remaining writes stop and the error says how many devices were already sent. There is no rollback once a device has left. MX Unison cannot confirm that a device arrived at the destination.
+
+The active channel is never saved as a reconnect preference. Snapshot pairing data can be stale.
+
+**Switching back** requires MX Unison (or equivalent software) on the computer the devices moved to, or the devices' own channel buttons. Installing this plugin on one computer does not control devices that have moved away.
 
 ### Optional keyboard shortcuts
 
-Add these only after checking existing bindings for conflicts with `omarchy menu keybindings --print`:
+The plugin exposes an IPC command. Check for conflicts first with `omarchy menu keybindings --print`, then add bindings like these to `~/.config/hypr/bindings.lua`:
 
 ```lua
 o.bind("SUPER + CTRL + ALT + 1", "MX Unison: target 1", "omarchy-shell local.mx-unison switchTogether 1")
@@ -80,55 +160,96 @@ o.bind("SUPER + CTRL + ALT + 2", "MX Unison: target 2", "omarchy-shell local.mx-
 o.bind("SUPER + CTRL + ALT + 3", "MX Unison: target 3", "omarchy-shell local.mx-unison switchTogether 3")
 ```
 
-These belong in `~/.config/hypr/bindings.lua`. Back it up before editing, then validate with `hyprctl reload` and `hyprctl configerrors`. The installer does not add or remove bindings.
+Back up the file before editing, then validate with `hyprctl reload` and `hyprctl configerrors`. The installer never adds or removes bindings.
 
-### Physical Easy-Switch following
+### Physical Easy-Switch following (experimental)
 
-Select a keyboard included in the group, enable **Follow this keyboard’s physical Easy-Switch buttons**, and save. The listener requires the keyboard to expose CHANGE_HOST feature version 2. Version 1 devices can still use coordinated switching through plugin buttons and shortcuts, but their physical channel buttons are not followed by this implementation.
+With this on, pressing the keyboard's own Easy-Switch button moves the rest of the group to the matching target.
 
-The helper observes that keyboard’s host-change notifications through a separate read handle. It does not intercept ordinary typing or divert the Easy-Switch buttons. The keyboard has already initiated its own switch; the group mapping determines where the other devices should go.
+1. Include a keyboard in the group.
+2. Select it as the source and enable **Follow this keyboard's physical Easy-Switch buttons**.
+3. Save the group.
 
-This is notification-based following, not Logitech’s persistent cookie-based device linking. Events can be missed during startup, reconnection, sleep, or a slow HID++ request. The listener has synthetic regression coverage but no end-to-end hardware validation. Test every destination before relying on it. Following starts disabled on a fresh installation.
+How it works and its limits:
 
-## Configuration and privacy
+- The keyboard must expose **CHANGE_HOST feature version 2**. Version 1 keyboards can still use the plugin buttons and shortcuts, but their physical buttons are not followed. The runtime snapshot field `changeHostVersion` shows which version a device reports.
+- The helper listens for the keyboard's host-change notification on a separate read handle. It does not intercept typing or divert the Easy-Switch keys. The keyboard has already started its own switch; the group mapping decides where the other devices go.
+- This is notification-based following, not Logitech's persistent cookie-based linking. Events can be missed during startup, reconnection, sleep or a slow HID++ request.
+- It has synthetic test coverage only. Test every destination before relying on it. It is off by default.
 
-| Location | Purpose |
+## Files, configuration and privacy
+
+| Location | Contents |
 | --- | --- |
-| Your repository checkout | Version-controlled source; work here |
-| `~/.config/omarchy/plugins/local.mx-unison/` | Deployed copy loaded by Omarchy |
-| `~/.config/mx-unison/` | Local profiles, actions, pointer/scroll preferences and switch mappings |
-| `$XDG_RUNTIME_DIR/mx-unison/status.json` | Live device snapshot; fallback runtime root is `/run/user/$UID` |
-| `~/.config/omarchy/shell.json` | Omarchy plugin and bar configuration |
-| `~/.config/hypr/bindings.lua` | Optional user-managed shortcuts |
-| `~/.local/state/mx-unison/backups/` | Deployment backups, or the corresponding `$XDG_STATE_HOME` location |
+| Your clone of this repository | Source; make changes here |
+| `~/.config/omarchy/plugins/local.mx-unison/` | Deployed copy that Omarchy loads |
+| `~/.config/mx-unison/` | Your profiles, actions, pointer and scroll preferences, switch group |
+| `$XDG_RUNTIME_DIR/mx-unison/` | Live `status.json` snapshot and command spool (falls back to `/run/user/$UID`) |
+| `~/.config/omarchy/shell.json` | Omarchy's plugin and bar configuration |
+| `~/.config/hypr/bindings.lua` | Optional shortcuts you add yourself |
+| `~/.local/state/mx-unison/backups/` | Deployment backups (or under `$XDG_STATE_HOME`) |
 
-Solaar’s library may also save hardware preferences in its existing configuration. The plugin does not replace Solaar’s `rules.yaml`, disable other services, or modify packaged Omarchy files. Local scroll and acceleration overrides are restored to global compositor defaults on orderly helper exit; forced termination can require a compositor reload. These defaults may differ from prior per-device custom overrides.
+Solaar's library may also record hardware settings in Solaar's own configuration. MX Unison does not replace Solaar's `rules.yaml`, disable other services or modify packaged Omarchy files.
 
-Preferences and snapshots can contain serial numbers, device addresses, paired-host names, application classes and shortcut assignments. Keep them outside this repository and redact diagnostic output before sharing. See [security and privacy](SECURITY.md).
+Scroll and acceleration overrides return to the compositor's global defaults when the helper exits normally. If it is killed, run `hyprctl reload` to clear them. The global defaults may differ from per-device overrides you set elsewhere.
 
-## Troubleshooting and removal
+Preferences and snapshots can contain device serial numbers, Bluetooth addresses, paired-host names, application classes and shortcuts. Redact them before sharing diagnostics. See [SECURITY.md](SECURITY.md).
 
-- **Device missing:** wake it, check its channel/connection, and refresh. A receiver being visible does not prove its peripherals are supported.
-- **Solaar unavailable:** confirm `/usr/bin/python3 -c 'import logitech_receiver'` succeeds.
-- **Read-only controls:** check Solaar installation and hidraw permissions. Do not solve this by running the shell as root.
-- **Old UI after deployment:** restart the Omarchy shell to clear QML component caches.
-- **Switch failed:** inspect the error before retrying; some devices may already have moved. Confirm every group member’s channel pairing.
-- **Physical follow unavailable:** check `changeHostVersion` in the local runtime snapshot. This listener requires version 2.
+## Troubleshooting
 
-Disable with `omarchy plugin disable local.mx-unison`. Remove with `omarchy plugin remove local.mx-unison` after backing up any installation-only edits. Remove optional bindings separately. Device onboard settings, Solaar configuration, local preferences and deployment backups remain; removal is not a factory reset.
+| Symptom | What to check |
+| --- | --- |
+| Device missing | Wake it, check its channel and connection, then refresh. A visible receiver does not prove its peripherals are supported. |
+| "Solaar unavailable" | `/usr/bin/python3 -c 'import logitech_receiver'` must succeed. |
+| Controls are read-only | Solaar installed? hidraw permissions? Use **Reload udev** or reconnect the device. Never run the shell as root to fix this. |
+| Old UI after deploying | `omarchy restart shell` clears QML caches. |
+| Switch failed | Read the error before retrying; some devices may already have moved. Confirm every member is paired on the target channel. |
+| Physical follow unavailable | Check `changeHostVersion` in `$XDG_RUNTIME_DIR/mx-unison/status.json`; it must be `2`. |
+| Scroll or acceleration stuck after a crash | `hyprctl reload`. |
 
-## Development and Git workflow
+## Limitations
 
-See [CONTRIBUTING.md](CONTRIBUTING.md) for the local Git workflow, checks, deployment and rollback. See [architecture](docs/architecture.md) for module responsibilities, runtime behavior and validation gaps. The [changelog](CHANGELOG.md) records changes from the inherited base.
+- **Hardware validation is incomplete.** A smoke test confirmed discovery, feature loading and the settings window with real devices. No real group host switch has been performed yet, and the physical-follow listener has not been tested end-to-end. Synthetic tests do not prove compatibility with a given model, firmware or transport.
+- **Switching is not atomic.** See [What happens when you switch](#what-happens-when-you-switch).
+- **Profiles** have global names. Filtering by device kind does not prove cross-model compatibility, and settings are applied in sequence without rollback.
+- **Discovery** mainly targets MX-related device names. Receiver support is broader than proven peripheral support.
+- **Translation:** new strings use the `i18n/` catalog; much of the inherited interface is still English-only.
+
+## Uninstall
 
 ```sh
-./scripts/check.sh
+omarchy plugin disable local.mx-unison
+omarchy plugin remove local.mx-unison
 ```
 
-The automated suite covers configuration validation, switch order and channel mapping, known unpaired destinations, partial failures, notification filtering, unsafe text, action lifecycle, pointer behavior and scroll factors. Tests do not establish hardware compatibility. Group/scroll strings use an English translation catalog with Omarchy fallback; much of the inherited interface remains English.
+Back up any edits you made to the installed copy first, and remove any shortcuts you added. Settings stored on the devices, Solaar's configuration, `~/.config/mx-unison/` and deployment backups remain. Uninstalling is not a factory reset.
+
+## Roadmap
+
+- Validate coordinated switching and physical following on real hardware, both directions, and publish a compatibility table.
+- Run the helper only while it is needed: exit after configuration when no software feature requires a listener.
+- Explore a native (Rust) helper to cut memory use and startup time. See [docs/rust-plan.md](docs/rust-plan.md).
+
+Issues and pull requests are welcome; see [CONTRIBUTING.md](CONTRIBUTING.md). Hardware reports are especially useful. Include model, firmware, connection type and steps, but no serial numbers or host names.
+
+## Development
+
+```sh
+./scripts/check.sh   # Python unit tests, JavaScript model checks, whitespace
+```
+
+The suite covers configuration validation, switch ordering and channel mapping, unpaired destinations, partial failures, notification filtering, unsafe text, action lifecycle, pointer behavior and scroll factors, all with synthetic data and mocked device APIs.
+
+- [CONTRIBUTING.md](CONTRIBUTING.md): Git workflow, checks, hardware test checklist, deployment and rollback.
+- [docs/architecture.md](docs/architecture.md): module responsibilities, runtime and validation gaps.
+- [CHANGELOG.md](CHANGELOG.md): changes from the inherited base.
 
 ## Credits and license
 
-GPL-2.0-or-later; see [LICENSE](LICENSE). MX Unison is derived from [Zach Wilke’s MX Control](https://github.com/zachwilke/omarchy-mxcontrol), starting at commit `0968d77124ed72b207035e5f4f7b70509822a3d6`. Original copyright notices and inherited history are retained. [OmaOptions](https://github.com/andreinita21/omaoptions) was reviewed as a reference; its installer is not used.
+GPL-2.0-or-later; see [LICENSE](LICENSE).
 
-Device access builds on [Solaar](https://github.com/pwr-Solaar/Solaar). The experimental physical-follow listener was informed by [Solaar’s Enhanced Easy-Switch proposal](https://github.com/pwr-Solaar/Solaar/pull/3339) and [discussion](https://github.com/pwr-Solaar/Solaar/issues/3228); it does not incorporate the complete proposed linking implementation. MX Unison is an independent project and is not affiliated with Logitech.
+MX Unison is a fork of [Zach Wilke's MX Control](https://github.com/zachwilke/omarchy-mxcontrol), starting at commit `0968d77124ed72b207035e5f4f7b70509822a3d6`. Original copyright notices and history are retained. [OmaOptions](https://github.com/andreinita21/omaoptions) was reviewed as a reference; its installer is not used.
+
+Device access builds on [Solaar](https://github.com/pwr-Solaar/Solaar). The physical-follow listener was informed by [Solaar's Enhanced Easy-Switch proposal](https://github.com/pwr-Solaar/Solaar/pull/3339) and its [discussion](https://github.com/pwr-Solaar/Solaar/issues/3228); it does not include the complete proposed linking implementation.
+
+MX Unison is an independent project and is not affiliated with or endorsed by Logitech. Logitech, MX, Logi Bolt, Unifying, Easy-Switch and Flow are trademarks of Logitech.

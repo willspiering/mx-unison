@@ -1,5 +1,11 @@
 # Changelog
 
+## Unreleased
+
+- Rewrote the README around what the plugin does and who it is for, including when the helper runs and which features need it resident.
+- Added a phased plan for a leaner, possibly Rust-based helper (`docs/rust-plan.md`).
+- Replaced device-like identifiers in test fixtures with synthetic values.
+
 ## 0.1.0 — initial MX Unison baseline
 
 Derived from MX Control commit `0968d77124ed72b207035e5f4f7b70509822a3d6`.

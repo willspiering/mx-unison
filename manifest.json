@@ -3,7 +3,7 @@
   "id": "local.mx-unison",
   "name": "MX Unison",
   "version": "0.1.0",
-  "author": "Local customization; based on Zach Wilke\u2019s MX Control",
+  "author": "MX Unison contributors; based on Zach Wilke\u2019s MX Control",
   "license": "GPL-2.0-or-later",
   "description": "Logitech device controls and coordinated Easy Switch for Omarchy.",
   "dependencies": {

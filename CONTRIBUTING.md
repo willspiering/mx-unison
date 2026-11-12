@@ -10,14 +10,7 @@ The repository preserves its inherited MX Control history. `upstream` points to 
 git fetch --unshallow upstream  # only while git rev-parse --is-shallow-repository says true
 ```
 
-No personal GitHub repository is created or published by the local setup. When ready, create an empty repository in your account, then use its actual URL:
-
-```sh
-git remote add origin YOUR_REPOSITORY_URL
-git push -u origin main
-```
-
-Replace the placeholder; do not create a README or initial commit in the remote repository first. Choose public/private visibility deliberately. Before publishing, check your commit author identity and GitHub email privacy settings. New commits use your existing Git identity; repository documentation does not include a maintainer’s personal identity. Preserved upstream commits retain their original authorship.
+The public repository is `https://github.com/willspiering/mx-unison` and is configured as `origin`. Contributors should fork it and open pull requests against `main`. Before committing, check that your commit author email is one you are happy to publish; GitHub's `users.noreply.github.com` address is a good default. Preserved upstream commits retain their original authorship.
 
 Useful inspection commands:
 
