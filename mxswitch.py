@@ -85,19 +85,53 @@ def prepare(config, devices, identity, online, setting_for, target, source="", h
     return work
 
 
-def execute(work):
+VERIFY_DELAY = 0.8     # let the device act on CHANGE_HOST before checking
+VERIFY_CHECKS = 3      # consecutive successful pings needed to call it "stayed"
+VERIFY_INTERVAL = 0.7
+
+
+def _stayed(dev, present, sleep):
+    """True when the device still answers after a switch command."""
+    sleep(VERIFY_DELAY)
+    for attempt in range(VERIFY_CHECKS):
+        if not present(dev):
+            return False
+        if attempt < VERIFY_CHECKS - 1:
+            sleep(VERIFY_INTERVAL)
+    return True
+
+
+def execute(work, present=None, sleep=time.sleep):
+    """Send switch commands in order.
+
+    CHANGE_HOST is sent without a reply, so a successful write does not prove
+    the device acted on it. With ``present`` (a liveness check), each device
+    must stop answering; otherwise the command is resent once, and if the
+    device still stays the remaining devices are not switched.
+    """
     sent = []
+    retried = []
     for did, dev, setting, channel in work:
         try:
             # Never use cached current-host state to suppress a switch, and
             # never persist an active channel that could switch on reconnect.
-            result = setting.write(channel, save=False)
-            if result is None or result is False:
-                raise RuntimeError("Device rejected the switch command")
+            for attempt in range(2 if present else 1):
+                result = setting.write(channel, save=False)
+                if result is None or result is False:
+                    raise RuntimeError("Device rejected the switch command")
+                if not present or not _stayed(dev, present, sleep):
+                    break
+                if attempt == 0:
+                    retried.append(did)
+            else:
+                raise RuntimeError("A device ignored the switch command and is still connected here; remaining devices were not switched")
             sent.append(did)
         except Exception as exc:
             raise RuntimeError(f"Switch stopped after {len(sent)} command(s); check device channels. {exc}") from exc
-    return {"sent": sent, "message": "Switch commands sent; destination connection cannot be verified here", "ts": int(time.time())}
+    message = "Switch commands sent; destination connection cannot be verified here"
+    if present:
+        message = "Devices left this computer; arrival at the destination cannot be verified here"
+    return {"sent": sent, "retried": retried, "message": message, "ts": int(time.time())}
 
 
 # REPROG_CONTROLS_V4 control IDs for the Easy-Switch keys and the flags used to

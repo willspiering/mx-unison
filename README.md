@@ -144,7 +144,8 @@ Channel numbers may differ between devices. If your laptop is channel 1 on the k
 
 1. **Preflight.** Every group member must be online and support `change-host`. The target channel must exist and must not be marked unpaired in the latest device snapshot. If any check fails, nothing is switched.
 2. **Send.** Mice and other devices switch first. The keyboard switches last, so you keep a keyboard until the end.
-3. **Partial failure.** If a write fails, the remaining writes stop and the error says how many devices were already sent. There is no rollback once a device has left. MX Unison cannot confirm that a device arrived at the destination.
+3. **Confirm departure.** Switch commands are fire-and-forget, so after each one the helper checks that the device stopped answering. If it is still connected, the command is resent once. If it still stays, switching stops and the keyboard is kept here.
+4. **Partial failure.** If a write fails, the remaining writes stop and the error says how many devices were already sent. There is no rollback once a device has left. MX Unison can confirm that a device left, but not that it arrived at the destination.
 
 The active channel is never saved as a reconnect preference. Snapshot pairing data can be stale.
 

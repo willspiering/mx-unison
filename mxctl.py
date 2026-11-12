@@ -1747,6 +1747,14 @@ def switch_setting(mods, dev):
     return find_setting(dev, "change-host") or find_setting(dev, "change_host")
 
 
+def switch_device_present(dev) -> bool:
+    """Liveness check used to confirm a device actually left after CHANGE_HOST."""
+    try:
+        return bool(dev.ping())
+    except Exception:
+        return False
+
+
 def switch_group(mods, opened, cmd):
     import mxswitch
     config = switch_config()
@@ -1762,7 +1770,7 @@ def switch_group(mods, opened, cmd):
     work = mxswitch.prepare(config, list(iter_devices(opened)), device_id,
                             device_is_online, lambda d: switch_setting(mods, d),
                             cmd.get("target"), source, lambda d: hosts.get(device_id(d), []))
-    result = mxswitch.execute(work)
+    result = mxswitch.execute(work, present=switch_device_present)
     write_bytes(profiles_dir() / "switch-result.json", (json.dumps(result) + "\n").encode())
 
 

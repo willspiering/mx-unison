@@ -90,6 +90,27 @@ class Switching(unittest.TestCase):
                 hosts_for=lambda d: [{"index": 2, "paired": False}] if d.id == "keys" else [])
         self.assertEqual(self.sent, [])
 
+    def run_verified(self, answers):
+        """answers: per-device list of ping results consumed in order."""
+        pings = {did: list(seq) for did, seq in answers.items()}
+        present = lambda dev: pings[dev.id].pop(0) if pings[dev.id] else False
+        return mxswitch.execute(self.plan(), present=present, sleep=lambda _: None)
+
+    def test_verified_switch_departs_first_time(self):
+        result = self.run_verified({"mouse": [False], "keys": [False]})
+        self.assertEqual([d for d, _, _ in self.sent], ["mouse", "keys"])
+        self.assertEqual(result["retried"], [])
+
+    def test_ignored_command_is_resent_once(self):
+        result = self.run_verified({"mouse": [True, True, True, False], "keys": [False]})
+        self.assertEqual([d for d, _, _ in self.sent], ["mouse", "mouse", "keys"])
+        self.assertEqual(result["retried"], ["mouse"])
+
+    def test_device_that_stays_keeps_keyboard_here(self):
+        with self.assertRaisesRegex(RuntimeError, "after 0 command.*still connected"):
+            self.run_verified({"mouse": [True] * 6, "keys": [False]})
+        self.assertEqual([d for d, _, _ in self.sent], ["mouse", "mouse"])
+
     def test_follow_requires_grouped_source(self):
         self.config.update(follow=True, keyboard='other')
         with self.assertRaises(ValueError): mxswitch.validate(self.config)
