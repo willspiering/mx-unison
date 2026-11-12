@@ -95,4 +95,133 @@ class Switching(unittest.TestCase):
         with self.assertRaises(ValueError): mxswitch.validate(self.config)
 
 
+class _Feature:
+    """Stand-in for logitech_receiver.hidpp20_constants.SupportedFeature."""
+    CHANGE_HOST = "CHANGE_HOST"
+    REPROG_CONTROLS_V4 = "REPROG_CONTROLS_V4"
+
+
+class _Features(dict):
+    def __init__(self, indexes, versions):
+        super().__init__(indexes)
+        self.versions = versions
+
+    def get_feature_version(self, feature):
+        return self.versions.get(feature)
+
+
+class _Keyboard:
+    """Synthetic CHANGE_HOST v1 keyboard with reportable Easy-Switch keys."""
+    def __init__(self, change_host_version=1, analytics=True, echo=True):
+        self.number = 2
+        self.path = "/dev/hidraw-synthetic"
+        self.features = _Features({_Feature.CHANGE_HOST: 9, _Feature.REPROG_CONTROLS_V4: 8},
+                                  {_Feature.CHANGE_HOST: change_host_version, _Feature.REPROG_CONTROLS_V4: 5})
+        flag = 0x400 if analytics else 0
+        self.keys = [SimpleNamespace(key=cid, flags=flag) for cid in (0xD1, 0xD2, 0xD3)]
+        self.keys.append(SimpleNamespace(key=0xE2, flags=0x420))  # unrelated key
+        self.echo = echo
+        self.requests = []
+
+    def feature_request(self, feature, function, *params):
+        self.requests.append((feature, function, params))
+        if feature == _Feature.CHANGE_HOST:
+            return bytes([3, 1])  # three hosts, currently on channel 2
+        if function == 0x20:
+            return bytes([params[0], params[1], 0, 0, 0, 0x01 if self.echo else 0])
+        return bytes(6)
+
+
+class KeyReportFollow(unittest.TestCase):
+    def setUp(self):
+        module = SimpleNamespace(SupportedFeature=_Feature)
+        patcher = patch.dict(sys.modules, {"logitech_receiver": SimpleNamespace(hidpp20_constants=module),
+                                           "logitech_receiver.hidpp20_constants": module})
+        patcher.start()
+        self.addCleanup(patcher.stop)
+        self.config = {"version": 1, "keyboard": "keys", "follow": True,
+                       "members": {"keys": [0, 1, 2], "mouse": [2, 1, 0]}}
+
+    def sync(self, follower, keyboard):
+        with patch("mxswitch.os.open", return_value=77), patch("mxswitch.os.close"):
+            follower.sync(self.config, [keyboard], lambda d: "keys")
+
+    def test_parse_key_events_reports_only_host_key_presses(self):
+        payload = bytes([0x00, 0xD2, 0x01, 0x00, 0xE2, 0x01, 0x00, 0xD3, 0x00]) + bytes(7)
+        self.assertEqual(mxswitch.parse_key_events(payload), [1])
+        self.assertEqual(mxswitch.parse_key_events(bytes(16)), [])
+
+    def test_only_reportable_host_keys_are_selected(self):
+        self.assertEqual(mxswitch.host_key_reporting(_Keyboard().keys), [0xD1, 0xD2, 0xD3])
+        self.assertEqual(mxswitch.host_key_reporting(_Keyboard(analytics=False).keys), [])
+
+    def test_v1_keyboard_enables_reporting_on_host_keys_only(self):
+        keyboard, follower = _Keyboard(), mxswitch.Follower()
+        self.sync(follower, keyboard)
+        self.assertEqual(follower.status()["mode"], "key-report")
+        self.assertTrue(follower.status()["listening"], follower.error)
+        sets = [r for r in keyboard.requests if r[1] == 0x30]
+        self.assertEqual([(p[0] << 8 | p[1]) for _, _, p in sets], [0xD1, 0xD2, 0xD3])
+        # Never touches divert flags or remapping, only the analytics byte.
+        self.assertTrue(all(p[2:5] == (0, 0, 0) and p[5] == 0x03 for _, _, p in sets))
+        self.assertEqual(follower.current_host, 1)
+
+    def test_close_clears_reporting(self):
+        keyboard, follower = _Keyboard(), mxswitch.Follower()
+        self.sync(follower, keyboard)
+        keyboard.requests.clear()
+        with patch("mxswitch.os.close"):
+            follower.close()
+        self.assertEqual([p[5] for _, f, p in keyboard.requests if f == 0x30], [0x02] * 3)
+        self.assertFalse(follower.status()["listening"])
+
+    def test_unconfirmed_reporting_is_an_error_not_a_listener(self):
+        keyboard, follower = _Keyboard(echo=False), mxswitch.Follower()
+        self.sync(follower, keyboard)
+        self.assertFalse(follower.status()["listening"])
+        self.assertIn("did not enable", follower.error)
+
+    def test_keyboard_without_reportable_keys_explains_fallback(self):
+        follower = mxswitch.Follower()
+        self.sync(follower, _Keyboard(analytics=False))
+        self.assertIn("cannot report", follower.error)
+
+    def test_v2_keyboard_keeps_change_host_listener(self):
+        keyboard, follower = _Keyboard(change_host_version=2), mxswitch.Follower()
+        self.sync(follower, keyboard)
+        self.assertEqual(follower.status()["mode"], "change-host-v2")
+        self.assertEqual(keyboard.requests, [])
+
+    def test_key_press_maps_to_target_and_skips_current_host(self):
+        follower = mxswitch.Follower()
+        follower.fd, follower.number, follower.feature, follower.mode = 77, 2, 8, "key-report"
+        follower.current_host = 1
+        press = lambda ch, dev=2: bytes([0x11, dev, 8, 0x20, 0x00, 0xD1 + ch, 0x01]) + bytes(13)
+        # Other device, current host, then channel 1 -> logical target 1.
+        with patch("mxswitch.os.read", side_effect=[press(0, dev=1), press(1), press(0)]):
+            self.assertEqual(follower.poll(self.config), 1)
+        self.assertEqual(follower.status()["lastKey"]["channel"], 1)
+        # Repeat within a second is debounced.
+        with patch("mxswitch.os.read", side_effect=[press(0), BlockingIOError()]):
+            self.assertIsNone(follower.poll(self.config))
+        # Channel 3 is mapped to target 3 for this keyboard.
+        with patch("mxswitch.os.read", side_effect=[press(2)]):
+            self.assertEqual(follower.poll(self.config), 3)
+
+    def test_reconnect_schedules_rearm(self):
+        keyboard, follower = _Keyboard(), mxswitch.Follower()
+        self.sync(follower, keyboard)
+        link_up, link_down = bytes([0x10, 2, 0x41, 0x04, 0, 0, 0]), bytes([0x10, 2, 0x41, 0x44, 0, 0, 0])
+        with patch("mxswitch.os.read", side_effect=[link_down, BlockingIOError()]):
+            follower.poll(self.config)
+        self.assertIsNone(follower.rearm_at)
+        with patch("mxswitch.os.read", side_effect=[link_up, BlockingIOError()]):
+            follower.poll(self.config)
+        self.assertIsNotNone(follower.rearm_at)
+        keyboard.requests.clear()
+        self.sync(follower, keyboard)
+        self.assertEqual(len([r for r in keyboard.requests if r[1] == 0x30]), 3)
+        self.assertIsNone(follower.rearm_at)
+
+
 if __name__ == '__main__': unittest.main()

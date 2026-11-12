@@ -9,7 +9,7 @@ MX Unison is an Omarchy shell plugin that does two jobs:
 
 It runs inside Omarchy's existing Quickshell bar, talks to devices locally over HID++ through [Solaar](https://github.com/pwr-Solaar/Solaar)'s library, and has no cloud account, telemetry, AI features or network access.
 
-> **Status: early development (0.1.0).** Device settings work on the hardware they have been tried on. Coordinated switching is implemented and unit-tested but has **not yet been validated end-to-end on real hardware**. Physical Easy-Switch following is experimental. This is not full Logi Options+ parity. See [Limitations](#limitations).
+> **Status: early development (0.1.0).** Device settings work on the hardware they have been tried on. Coordinated switching via the plugin's shortcut has worked in one real setup (MX Master 3S over Bluetooth plus MX Mechanical Mini over Bolt) but has not been tested widely. Physical Easy-Switch following is experimental. This is not full Logi Options+ parity. See [Limitations](#limitations).
 
 ## Contents
 
@@ -51,7 +51,7 @@ If you only want hardware settings and do not use Omarchy, use Solaar directly.
 | Profiles | Save and re-apply a snapshot of a device's settings | Local, manual; applied without rollback |
 | Easy-Switch host names | View and rename the paired-host labels stored on a device | |
 | **Coordinated switching** | Move a group of devices to target 1, 2 or 3 at once | Per-device channel mapping; mice first, keyboard last |
-| **Physical Easy-Switch following** | Pressing the keyboard's channel button moves the rest of the group | Experimental; needs CHANGE_HOST feature version 2 |
+| **Physical Easy-Switch following** | Pressing the keyboard's channel button moves the rest of the group | Experimental; needs Easy-Switch key reporting or CHANGE_HOST v2; outbound only |
 
 MX-series devices are the primary scope. A supported receiver does not mean every peripheral attached to it is supported. Firmware, connection method, permissions and sleep state all affect which controls appear.
 
@@ -170,12 +170,30 @@ With this on, pressing the keyboard's own Easy-Switch button moves the rest of t
 2. Select it as the source and enable **Follow this keyboard's physical Easy-Switch buttons**.
 3. Save the group.
 
-How it works and its limits:
+The helper picks one of two ways to notice the key press:
 
-- The keyboard must expose **CHANGE_HOST feature version 2**. Version 1 keyboards can still use the plugin buttons and shortcuts, but their physical buttons are not followed. The runtime snapshot field `changeHostVersion` shows which version a device reports.
-- The helper listens for the keyboard's host-change notification on a separate read handle. It does not intercept typing or divert the Easy-Switch keys. The keyboard has already started its own switch; the group mapping decides where the other devices go.
-- This is notification-based following, not Logitech's persistent cookie-based linking. Events can be missed during startup, reconnection, sleep or a slow HID++ request.
+| Mode | Used when | How |
+| --- | --- | --- |
+| Key reporting | The keyboard's Easy-Switch keys support HID++ *analytics key events* (common on recent MX keyboards with CHANGE_HOST v1) | The helper asks the keyboard to report presses of its three Easy-Switch keys, and only those keys. The keys are not diverted: the keyboard still switches itself, and also reports which key was pressed. |
+| Host-change notification | The keyboard supports CHANGE_HOST version 2 | The helper reads the keyboard's host-change notification. |
+
+`switchRuntime.mode` in the runtime snapshot shows the active mode, and `switchRuntime.lastKey` shows the last Easy-Switch key the helper saw.
+
+Limits:
+
+- **This works in one direction only, from this computer outward.** When you press an Easy-Switch key on another computer, this computer can't see the press, and the mouse is no longer connected here to command. To switch back with one key press, the other computer needs its own switching software. Otherwise, press the mouse's own channel button. See [Using several computers](#using-several-computers).
+- The keyboard has already started its own switch; the group mapping decides where the other devices go. Pressing the key for the channel you are already on does nothing.
+- Key reporting is reset when the keyboard reconnects, so the helper turns it back on when the keyboard returns.
+- Events can be missed during startup, reconnection, sleep or a slow HID++ request. The keyboard may also drop its link before the report arrives; that has not yet been measured on real hardware.
+- It is not Logitech's persistent cookie-based device linking.
 - It has synthetic test coverage only. Test every destination before relying on it. It is off by default.
+
+### Using several computers
+
+MX Unison controls devices only while they are connected to the computer it runs on.
+
+- **Leaving this computer:** the switch buttons, shortcuts and physical following all work from here.
+- **Coming back:** the other computer has to send the devices back. Today that means MX Unison on another Omarchy machine, or pressing each device's channel button. A small cross-platform companion for macOS and other Linux desktops is on the [roadmap](#roadmap).
 
 ## Files, configuration and privacy
 
@@ -204,12 +222,12 @@ Preferences and snapshots can contain device serial numbers, Bluetooth addresses
 | Controls are read-only | Solaar installed? hidraw permissions? Use **Reload udev** or reconnect the device. Never run the shell as root to fix this. |
 | Old UI after deploying | `omarchy restart shell` clears QML caches. |
 | Switch failed | Read the error before retrying; some devices may already have moved. Confirm every member is paired on the target channel. |
-| Physical follow unavailable | Check `changeHostVersion` in `$XDG_RUNTIME_DIR/mx-unison/status.json`; it must be `2`. |
+| Physical follow unavailable | Read the message under the follow checkbox. `switchRuntime` in `$XDG_RUNTIME_DIR/mx-unison/status.json` shows the mode and the last Easy-Switch key seen. |
 | Scroll or acceleration stuck after a crash | `hyprctl reload`. |
 
 ## Limitations
 
-- **Hardware validation is incomplete.** A smoke test confirmed discovery, feature loading and the settings window with real devices. No real group host switch has been performed yet, and the physical-follow listener has not been tested end-to-end. Synthetic tests do not prove compatibility with a given model, firmware or transport.
+- **Hardware validation is incomplete.** Discovery, feature loading, the settings window and one outbound shortcut-triggered group switch have worked on real devices. Physical following has not been tested end-to-end. Synthetic tests do not prove compatibility with a given model, firmware or transport.
 - **Switching is not atomic.** See [What happens when you switch](#what-happens-when-you-switch).
 - **Profiles** have global names. Filtering by device kind does not prove cross-model compatibility, and settings are applied in sequence without rollback.
 - **Discovery** mainly targets MX-related device names. Receiver support is broader than proven peripheral support.
@@ -229,6 +247,7 @@ Back up any edits you made to the installed copy first, and remove any shortcuts
 - Validate coordinated switching and physical following on real hardware, both directions, and publish a compatibility table.
 - Run the helper only while it is needed: exit after configuration when no software feature requires a listener.
 - Explore a native (Rust) helper to cut memory use and startup time. See [docs/rust-plan.md](docs/rust-plan.md).
+- A small cross-platform companion so other computers (macOS, other Linux desktops) can send the group back with one key press.
 
 Issues and pull requests are welcome; see [CONTRIBUTING.md](CONTRIBUTING.md). Hardware reports are especially useful. Include model, firmware, connection type and steps, but no serial numbers or host names.
 

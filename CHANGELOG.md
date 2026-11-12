@@ -4,6 +4,7 @@
 
 - Rewrote the README around what the plugin does and who it is for, including when the helper runs and which features need it resident.
 - Added a phased plan for a leaner, possibly Rust-based helper (`docs/rust-plan.md`).
+- Physical Easy-Switch following now works on keyboards with CHANGE_HOST v1 whose Easy-Switch keys support HID++ analytics key reporting. Reporting is enabled for those three keys only, re-enabled when the keyboard reconnects and cleared when following stops. Hardware validation is pending.
 - Replaced device-like identifiers in test fixtures with synthetic values.
 
 ## 0.1.0 — initial MX Unison baseline

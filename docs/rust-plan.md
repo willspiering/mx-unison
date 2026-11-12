@@ -79,6 +79,10 @@ These come from `AGENTS.md` and apply to any implementation:
 - No network access, no root, and no automatic installation of system packages.
 - Preferences stay in `~/.config/mx-unison/` with the same schema, or a documented migration.
 
+## Companion for other computers
+
+Physical following only works outward: once the devices leave, this computer can no longer reach them. Switching back with one key press needs software on every computer in the group. A Rust listener from Phase 2 is a good basis for a small cross-platform companion (macOS through IOKit/hidapi, generic Linux through hidraw). It would contain only key reporting, the group mapping and CHANGE_HOST writes, with no UI beyond a config file.
+
 ## Open questions
 
 - Is there a maintained Rust HID++ crate worth building on, or should we write a minimal implementation?
