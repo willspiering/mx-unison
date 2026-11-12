@@ -1,0 +1,98 @@
+import os
+import sys
+import tempfile
+import unittest
+from pathlib import Path
+from types import SimpleNamespace
+from unittest.mock import patch
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+import mxswitch
+
+
+class Switching(unittest.TestCase):
+    def setUp(self):
+        self.config = {"version": 1, "keyboard": "keys", "follow": False,
+                       "members": {"keys": [0, 1, 2], "mouse": [2, 0, 1]}}
+        self.devices = [SimpleNamespace(id="keys", name="MX Keys", kind="keyboard"),
+                        SimpleNamespace(id="mouse", name="MX Master", kind="mouse")]
+        self.sent = []
+        self.settings = {d.id: SimpleNamespace(choices=[0, 1, 2],
+                         write=lambda channel, save, did=d.id: self.sent.append((did, channel, save)) or channel)
+                         for d in self.devices}
+
+    def plan(self, target=2, source="", devices=None):
+        return mxswitch.prepare(self.config, self.devices if devices is None else devices,
+                                lambda d: d.id, lambda d: True,
+                                lambda d: self.settings.get(d.id), target, source)
+
+    def test_mapping_and_keyboard_last_no_persistence(self):
+        result = mxswitch.execute(self.plan())
+        self.assertEqual(self.sent, [("mouse", 0, False), ("keys", 1, False)])
+        self.assertEqual(result["sent"], ["mouse", "keys"])
+
+    def test_missing_member_is_all_or_nothing_preflight(self):
+        with self.assertRaises(ValueError): self.plan(devices=self.devices[:1])
+        self.assertEqual(self.sent, [])
+
+    def test_unsupported_member_is_all_or_nothing_preflight(self):
+        del self.settings['mouse']
+        with self.assertRaises(ValueError): self.plan()
+        self.assertEqual(self.sent, [])
+
+    def test_invalid_targets(self):
+        for target in (0, 4, True, "2", None):
+            with self.assertRaises(ValueError): self.plan(target)
+
+    def test_keyboard_already_switching_is_not_commanded(self):
+        self.config['follow'] = True
+        mxswitch.execute(self.plan(source="keys", devices=self.devices[1:]))
+        self.assertEqual(self.sent, [("mouse", 0, False)])
+
+    def test_mouse_rejection_stops_before_keyboard(self):
+        self.settings['mouse'].write = lambda *a, **kw: None
+        with self.assertRaisesRegex(RuntimeError, "after 0"):
+            mxswitch.execute(self.plan())
+        self.assertEqual(self.sent, [])
+
+    def test_validation_markup_and_bounds(self):
+        for key in ('<img src="https://example.invalid/x">', 'x'*129):
+            self.config['keyboard'] = key
+            with self.assertRaises(ValueError): mxswitch.validate(self.config)
+        self.config['keyboard'] = 'keys'
+        self.config['members']['mouse'] = [0, 0, 2]
+        with self.assertRaises(ValueError): mxswitch.validate(self.config)
+
+    def test_store_symlinks_and_size(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp)/'switch.json'
+            self.assertEqual(mxswitch.load(path), mxswitch.empty())
+            path.write_text(' '*16385)
+            with self.assertRaises(ValueError): mxswitch.load(path)
+            link = Path(tmp)/'link'; link.symlink_to(path)
+            with self.assertRaises(OSError): mxswitch.load(link)
+
+    def test_notification_filter_and_mapping(self):
+        follower = mxswitch.Follower()
+        follower.fd = 99; follower.number = 255; follower.feature = 10
+        self.config['follow'] = True
+        # Not our device, then keyboard switching from channel 1 to 3.
+        packets = [bytes([0x11, 1, 10, 0, 0, 1]), bytes([0x11, 255, 10, 0, 0, 2])]
+        with patch('mxswitch.os.read', side_effect=packets):
+            self.assertEqual(follower.poll(self.config), 3)
+        # Duplicate notification is suppressed.
+        with patch('mxswitch.os.read', side_effect=[packets[1], BlockingIOError()]):
+            self.assertIsNone(follower.poll(self.config))
+
+    def test_unpaired_target_is_rejected_before_any_write(self):
+        with self.assertRaisesRegex(ValueError, "not paired"):
+            mxswitch.prepare(self.config, self.devices, lambda d: d.id,
+                lambda d: True, lambda d: self.settings[d.id], 3,
+                hosts_for=lambda d: [{"index": 2, "paired": False}] if d.id == "keys" else [])
+        self.assertEqual(self.sent, [])
+
+    def test_follow_requires_grouped_source(self):
+        self.config.update(follow=True, keyboard='other')
+        with self.assertRaises(ValueError): mxswitch.validate(self.config)
+
+
+if __name__ == '__main__': unittest.main()

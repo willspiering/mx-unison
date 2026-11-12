@@ -7,8 +7,8 @@ import "Model.js" as Model
 
 Panel {
   id: root
-  moduleName: "io.github.zachwilke.mx"
-  ipcTarget: "io.github.zachwilke.mx"
+  moduleName: "local.mx-unison"
+  ipcTarget: "local.mx-unison"
   manageIpc: false
 
   property var anchorItem: null
@@ -122,7 +122,7 @@ Panel {
     root.close()
     Qt.callLater(function() {
       if (root.bar && root.bar.shell && typeof root.bar.shell.summon === "function")
-        root.bar.shell.summon("io.github.zachwilke.mx", JSON.stringify(payload))
+        root.bar.shell.summon("local.mx-unison", JSON.stringify(payload))
     })
   }
 
@@ -284,7 +284,7 @@ Panel {
               id: hero
               width: parent.width
               // HID names are untrusted peripheral identity; never render as rich text.
-              title: device ? root.hidName(device, "MX Control") : "MX Control"
+              title: device ? root.hidName(device, "MX Unison") : "MX Unison"
               meta: root.canWrite ? root.heroPhraseText : root.heroMeta
               detail: device && Model.batteryLabel(device) ? Model.batteryLabel(device) : ""
               foreground: root.foreground
@@ -704,7 +704,7 @@ Panel {
                   color: root.foreground
                   width: Math.max(parent.height, parent.width * ((mx && mx.readPercent ? mx.readPercent : 0) / 100))
 
-                  Behavior on width { NumberAnimation { duration: 220; easing.type: Easing.OutCubic } }
+                  Behavior on width { NumberAnimation { duration: Style.duration(220); easing.type: Easing.OutCubic } }
                 }
               }
 
@@ -736,14 +736,14 @@ Panel {
     id: phraseSwap
     PropertyAnimation {
       target: hero; property: "metaOpacity"
-      to: 0.0; duration: 180; easing.type: Easing.OutQuad
+      to: 0.0; duration: Style.duration(120); easing.type: Easing.OutQuad
     }
     ScriptAction {
       script: root.phraseIndex = (root.phraseIndex + 1) % root.activePhrases.length
     }
     PropertyAnimation {
       target: hero; property: "metaOpacity"
-      to: 1.0; duration: 260; easing.type: Easing.InQuad
+      to: 1.0; duration: Style.duration(180); easing.type: Easing.OutCubic
     }
   }
 

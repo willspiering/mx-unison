@@ -23,8 +23,8 @@ BAR = ROOT / "BarWidget.qml"
 
 class RuntimeDirTests(unittest.TestCase):
     def setUp(self):
-        self.xdg = tempfile.mkdtemp(prefix="omarchy-mx-test-")
-        self.config = tempfile.mkdtemp(prefix="omarchy-mx-cfg-")
+        self.xdg = tempfile.mkdtemp(prefix="mx-unison-test-")
+        self.config = tempfile.mkdtemp(prefix="mx-unison-cfg-")
         self.old_xdg = os.environ.get("XDG_RUNTIME_DIR")
         self.old_config = os.environ.get("XDG_CONFIG_HOME")
         os.environ["XDG_RUNTIME_DIR"] = self.xdg
@@ -52,12 +52,12 @@ class RuntimeDirTests(unittest.TestCase):
         )
 
     def test_same_fallback_path_in_qml_and_python(self):
-        self.assertEqual(mxctl.runtime_path("/run/user/1000", 999), "/run/user/1000/omarchy-mx")
-        self.assertEqual(mxctl.runtime_path("", 1000), "/run/user/1000/omarchy-mx")
-        self.assertEqual(mxctl.runtime_path(None, 42), "/run/user/42/omarchy-mx")
+        self.assertEqual(mxctl.runtime_path("/run/user/1000", 999), "/run/user/1000/mx-unison")
+        self.assertEqual(mxctl.runtime_path("", 1000), "/run/user/1000/mx-unison")
+        self.assertEqual(mxctl.runtime_path(None, 42), "/run/user/42/mx-unison")
         self.assertEqual(
             mxctl.runtime_path(os.environ["XDG_RUNTIME_DIR"], os.getuid()),
-            f"{self.xdg}/omarchy-mx",
+            f"{self.xdg}/mx-unison",
         )
 
     def test_no_tmp_runtime_fallback(self):
@@ -70,7 +70,7 @@ class RuntimeDirTests(unittest.TestCase):
         self.assertNotIn("/tmp", model)
         self.assertNotIn("/tmp", settings)
         self.assertNotIn("/var/tmp", settings)
-        self.assertNotIn("/tmp/omarchy-mx", python)
+        self.assertNotIn("/tmp/mx-unison", python)
         self.assertIn('Quickshell.env("XDG_RUNTIME_DIR")', service)
         self.assertIn("/run/user/", service)
         self.assertNotIn("Model.runtimeDir", service)
@@ -80,13 +80,13 @@ class RuntimeDirTests(unittest.TestCase):
 
     def test_runtime_dir_mode_0700(self):
         path = mxctl.runtime_dir()
-        self.assertEqual(str(path), f"{self.xdg}/omarchy-mx")
+        self.assertEqual(str(path), f"{self.xdg}/mx-unison")
         self.assertEqual(stat.S_IMODE(path.stat().st_mode), 0o700)
 
     def test_runtime_dir_cli_fallback(self):
         env = os.environ.copy()
         env.pop("XDG_RUNTIME_DIR", None)
-        expected = f"/run/user/{os.getuid()}/omarchy-mx"
+        expected = f"/run/user/{os.getuid()}/mx-unison"
         self.assertEqual(mxctl.runtime_path(None, os.getuid()), expected)
         proc = self.run_helper("runtime-dir", env=env)
         self.assertNotIn("/tmp", proc.stdout)
@@ -97,7 +97,7 @@ class RuntimeDirTests(unittest.TestCase):
             self.assertIn(expected, proc.stderr)
 
     def spool_files(self):
-        return sorted((Path(self.xdg) / "omarchy-mx").glob("cmd-*.json"))
+        return sorted((Path(self.xdg) / "mx-unison").glob("cmd-*.json"))
 
     def test_write_cmd_roundtrip(self):
         cmd = {"op": "set", "device": "abc", "setting": "dpi", "value": 800}
@@ -118,11 +118,11 @@ class RuntimeDirTests(unittest.TestCase):
             capture_output=True, text=True, env=os.environ.copy(),
         )
         self.assertEqual(proc.returncode, 0, proc.stderr)
-        files = list((Path(self.xdg) / "omarchy-mx").glob("cmd-*.json"))
+        files = list((Path(self.xdg) / "mx-unison").glob("cmd-*.json"))
         self.assertEqual(len(files), 1)
         self.assertEqual(json.loads(files[0].read_text())["op"], "pointer-set")
         service = SERVICE.read_text(encoding="utf-8")
-        self.assertIn('cmdProcess.command = ["python3", helperPath, "write-cmd"]', service)
+        self.assertIn('cmdProcess.command = ["/usr/bin/python3", "-B", helperPath, "write-cmd"]', service)
         self.assertNotIn('"write-cmd", JSON.stringify', service)
         self.assertIn("stdinEnabled", service)
 
@@ -138,7 +138,7 @@ class RuntimeDirTests(unittest.TestCase):
     def test_write_cmd_symlink_does_not_truncate(self):
         victim = Path(self.xdg) / "victim.txt"
         victim.write_text("keep-me\n", encoding="utf-8")
-        runtime = Path(self.xdg) / "omarchy-mx"
+        runtime = Path(self.xdg) / "mx-unison"
         runtime.mkdir()
         legacy = runtime / "cmd.json"
         legacy.symlink_to(victim)
@@ -169,8 +169,8 @@ class RuntimeDirTests(unittest.TestCase):
         cleaned = self.run_helper("cleanup")
         self.assertEqual(cleaned.returncode, 0, cleaned.stderr)
         self.assertEqual(self.spool_files(), [])
-        self.assertFalse((Path(self.xdg) / "omarchy-mx" / "cmd.json").exists())
-        self.assertFalse((Path(self.xdg) / "omarchy-mx" / "mxctl.lock").exists())
+        self.assertFalse((Path(self.xdg) / "mx-unison" / "cmd.json").exists())
+        self.assertFalse((Path(self.xdg) / "mx-unison" / "mxctl.lock").exists())
 
     def test_runtime_dir_purges_stale_commands(self):
         runtime = mxctl.runtime_dir()
@@ -208,20 +208,20 @@ class RuntimeDirTests(unittest.TestCase):
 
     def test_profiles_dir_mode_0700(self):
         path = mxctl.profiles_file()
-        self.assertEqual(path, Path(self.config) / "omarchy-mx" / "profiles.json")
+        self.assertEqual(path, Path(self.config) / "mx-unison" / "profiles.json")
         self.assertTrue(path.parent.is_dir())
         self.assertFalse(path.parent.is_symlink())
         self.assertEqual(stat.S_IMODE(path.parent.stat().st_mode), 0o700)
 
     def test_profiles_dir_chmods_existing(self):
-        folder = Path(self.config) / "omarchy-mx"
+        folder = Path(self.config) / "mx-unison"
         folder.mkdir(mode=0o755)
         os.chmod(folder, 0o755)
         path = mxctl.profiles_file()
         self.assertEqual(stat.S_IMODE(path.parent.stat().st_mode), 0o700)
 
     def test_profiles_dir_replaces_nondir_and_symlink(self):
-        folder = Path(self.config) / "omarchy-mx"
+        folder = Path(self.config) / "mx-unison"
         folder.write_text("not-a-dir\n", encoding="utf-8")
         path = mxctl.profiles_file()
         self.assertTrue(path.parent.is_dir())
@@ -239,7 +239,7 @@ class RuntimeDirTests(unittest.TestCase):
     def test_profiles_read_symlink_does_not_follow(self):
         victim = Path(self.config) / "secret.json"
         victim.write_text('{"version": 1, "profiles": [{"name": "Stolen"}]}\n', encoding="utf-8")
-        folder = Path(self.config) / "omarchy-mx"
+        folder = Path(self.config) / "mx-unison"
         folder.mkdir()
         planted = folder / "profiles.json"
         planted.symlink_to(victim)

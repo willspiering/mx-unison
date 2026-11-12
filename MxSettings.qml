@@ -7,6 +7,7 @@ import "Model.js" as Model
 
 Item {
   id: root
+  Translations { id: strings; directory: Qt.resolvedUrl("i18n") }
 
   property var shell: null
   // Injected by shells with plugin-service support: the same shared Service
@@ -30,9 +31,9 @@ Item {
   function resolveService() {
     if (service || !shell) return
     if (typeof shell.ensureService === "function")
-      service = shell.ensureService("io.github.zachwilke.mx") || null
+      service = shell.ensureService("local.mx-unison") || null
     if (!service && typeof shell.serviceFor === "function")
-      service = shell.serviceFor("io.github.zachwilke.mx")
+      service = shell.serviceFor("local.mx-unison")
   }
 
   function open(payloadJson) {
@@ -47,6 +48,7 @@ Item {
         try {
           var parsed = JSON.parse(String(payloadJson))
           if (parsed && parsed.device) mx.selectDevice(parsed.device)
+          if (parsed && navigation.some(function(n) { return n.key === parsed.section })) section = parsed.section
         } catch (e) { /* ignore */ }
       }
     }
@@ -60,7 +62,7 @@ Item {
   }
 
   function requestClose() {
-    if (shell && typeof shell.hide === "function") shell.hide("io.github.zachwilke.mx")
+    if (shell && typeof shell.hide === "function") shell.hide("local.mx-unison")
     else window.visible = false
   }
 
@@ -182,7 +184,7 @@ Item {
 
   FloatingWindow {
     id: window
-    title: "MX Control"
+    title: "MX Unison"
     color: root.background
     implicitWidth: 1100
     implicitHeight: 820
@@ -191,7 +193,7 @@ Item {
 
     onVisibleChanged: {
       if (!visible && !root.closingFromHost && root.shell && typeof root.shell.hide === "function")
-        root.shell.hide("io.github.zachwilke.mx")
+        root.shell.hide("local.mx-unison")
     }
 
     FocusScope {
@@ -229,7 +231,7 @@ Item {
             spacing: Style.space(28)
             Column {
               spacing: Style.space(6)
-              Text { text: "MX Control"; color: root.foreground; font.family: root.fontFamily; font.pixelSize: Style.font.subtitle; font.bold: true }
+              Text { text: "MX Unison"; color: root.foreground; font.family: root.fontFamily; font.pixelSize: Style.font.subtitle; font.bold: true }
               Text { text: "Your devices. Your way."; color: root.dim; font.family: root.fontFamily; font.pixelSize: Style.font.caption }
             }
             Column {
@@ -501,6 +503,62 @@ Item {
                 checked: thumbModeSetting ? Model.boolValue(thumbModeSetting) : false
                 onClicked: root.writeToggle(thumbModeSetting)
               }
+            }
+
+            Column {
+              visible: root.section === "device" && root.device && root.device.kind === "mouse"
+              width: parent.width
+              spacing: Style.space(8)
+              Text {
+                text: strings.t("scroll.title")
+                textFormat: Text.PlainText
+                color: root.foreground
+                font.family: root.fontFamily
+                font.pixelSize: Style.font.title
+              }
+              Slider {
+                id: scrollSlider
+                width: parent.width
+                from: 0.25; to: 4; stepSize: 0.25
+                value: root.device ? Number(mx.scroll[String(root.device.id)] || 1) : 1
+                onPressedChanged: { if (!pressed) mx.setScrollSpeed(value) }
+              }
+              Row {
+                spacing: Style.space(8)
+                Button {
+                  text: strings.t("scroll.apply")
+                  bordered: true
+                  focusable: true
+                  onClicked: mx.setScrollSpeed(scrollSlider.value)
+                }
+                Button {
+                  text: strings.t("scroll.reset")
+                  bordered: true
+                  focusable: true
+                  onClicked: mx.setScrollSpeed(null)
+                }
+                Text {
+                  text: I18n.formatNumber(scrollSlider.value, 2) + "×"
+                  textFormat: Text.PlainText
+                  color: root.foreground
+                  font.family: root.fontFamily
+                }
+              }
+              Text {
+                width: parent.width
+                text: mx.scrollError || strings.t("scroll.help")
+                textFormat: Text.PlainText
+                color: root.dim
+                wrapMode: Text.WordWrap
+                font.family: root.fontFamily
+                font.pixelSize: Style.font.caption
+              }
+            }
+
+            SwitchGroup {
+              visible: root.section === "hosts"
+              width: parent.width
+              mx: root.mx
             }
 
             SectionCard {

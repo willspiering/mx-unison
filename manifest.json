@@ -1,13 +1,11 @@
 {
   "schemaVersion": 1,
-  "id": "io.github.zachwilke.mx",
-  "name": "MX Control",
-  "version": "1.6.0",
-  "author": "Zach Wilke",
+  "id": "local.mx-unison",
+  "name": "MX Unison",
+  "version": "0.1.0",
+  "author": "Local customization; based on Zach Wilke\u2019s MX Control",
   "license": "GPL-2.0-or-later",
-  "homepage": "https://github.com/zachwilke/omarchy-mxcontrol",
-  "repository": "https://github.com/zachwilke/omarchy-mxcontrol.git",
-  "description": "Logitech settings for Omarchy, with shortcuts, app-specific actions, gestures, hardware remaps, and local profiles.",
+  "description": "Logitech device controls and coordinated Easy Switch for Omarchy.",
   "dependencies": {
     "required": [
       {
@@ -55,7 +53,7 @@
     "service": "Service.qml"
   },
   "barWidget": {
-    "displayName": "MX Control",
+    "displayName": "MX Unison",
     "description": "Battery and settings for MX devices on Bluetooth, USB, Bolt, and Unifying",
     "category": "Devices",
     "allowMultiple": false,

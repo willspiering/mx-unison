@@ -1,0 +1,15 @@
+{
+  "group.title": "Switch together",
+  "group.description": "Choose the devices to move together. Map each target to the paired channel on each device, then save. Mice switch first and keyboards last. Devices must already be paired with the destination; commands cannot confirm arrival there.",
+  "group.target": "Target %1",
+  "group.save": "Save group",
+  "group.revert": "Revert",
+  "group.switch": "Switch to %1",
+  "group.follow": "Follow this keyboard\u2019s physical Easy-Switch buttons (experimental)",
+  "group.listening": "Listening for this keyboard\u2019s host-change events. Test each destination before relying on automatic following.",
+  "group.followHelp": "Select a grouped keyboard to enable following. Requires CHANGE_HOST v2 firmware. Otherwise use the Switch buttons or Super+Ctrl+Alt+1/2/3. Configure each source computer to switch back.",
+  "scroll.title": "Scroll speed",
+  "scroll.apply": "Apply scroll speed",
+  "scroll.reset": "Use system default",
+  "scroll.help": "Changes the scroll factor for this mouse on this computer. Your touchpad is unaffected."
+}

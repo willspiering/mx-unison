@@ -295,7 +295,7 @@ class EventSocketTests(unittest.TestCase):
 
 class StoreAndProfileTests(unittest.TestCase):
     def setUp(self):
-        self.config = tempfile.mkdtemp(prefix="omarchy-mx-cfg-")
+        self.config = tempfile.mkdtemp(prefix="mx-unison-cfg-")
         self.old_config = os.environ.get("XDG_CONFIG_HOME")
         os.environ["XDG_CONFIG_HOME"] = self.config
 
@@ -334,7 +334,7 @@ class StoreAndProfileTests(unittest.TestCase):
         self.assertIn("set_pointer_pref(device_id(dev), accel_mode(pointer.get(\"acceleration\")))", apply_)
         self.assertIn('if op == "pointer-set":', source)
         self.assertIn("pointer.shutdown()", source)
-        self.assertIn("keep=(event_fd,)", source)
+        self.assertIn("keep=tuple(fd for fd in (event_fd, follower.fd) if fd is not None)", source)
 
     def test_pointer_set_validates(self):
         class Dev:

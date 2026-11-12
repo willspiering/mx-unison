@@ -67,8 +67,8 @@ function hidDisplayName(item, fallback) {
 // FileView cannot break if this module is cached stale.
 function runtimeDir(xdgRuntimeDir, uid) {
   var dir = xdgRuntimeDir === undefined || xdgRuntimeDir === null ? "" : String(xdgRuntimeDir)
-  if (dir !== "") return dir + "/omarchy-mx"
-  return "/run/user/" + String(uid || "") + "/omarchy-mx"
+  if (dir !== "") return dir + "/mx-unison"
+  return "/run/user/" + String(uid || "") + "/mx-unison"
 }
 
 function parseStatus(raw) {
@@ -84,9 +84,14 @@ function parseStatus(raw) {
       ts: isFinite(Number(data.ts)) ? Number(data.ts) : 0,
       message: plainHidText(data.message || ""),
       lastError: plainHidText(data.lastError || ""),
+      scroll: data.scroll || {},
+      scrollError: plainHidText(data.scrollError || ""),
+      switchConfig: data.switchConfig || null,
+      switchRuntime: data.switchRuntime || {},
       devices: Array.isArray(data.devices) ? data.devices : [],
       adapters: Array.isArray(data.adapters) ? data.adapters : [],
       progress: parseProgress(data.progress),
+      hasSwitch: data.hasSwitch === true || !!(data.switchConfig && data.switchConfig.follow),
       hasActions: data.hasActions === true || (Array.isArray(data.actions) && data.actions.length > 0),
       actions: Array.isArray(data.actions) ? data.actions : [],
       actionRuntime: data.actionRuntime || {},

@@ -1,0 +1,11 @@
+#!/usr/bin/env bash
+set -euo pipefail
+git diff --cached --check
+while IFS= read -r -d '' path; do
+  case "$path" in
+    .env|.env.*|*/.env|*/.env.*|*.pem|*.key|status.json|*/status.json|switch.json|*/switch.json|actions.json|*/actions.json|profiles.json|*/profiles.json|pointer.json|*/pointer.json|scroll.json|*/scroll.json|*.pkg.tar.*)
+      printf 'Refusing to commit a possible private/local artifact: %s\n' "$path" >&2
+      exit 1
+      ;;
+  esac
+done < <(git diff --cached --name-only --diff-filter=ACMR -z)

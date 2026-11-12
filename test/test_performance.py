@@ -39,7 +39,7 @@ def solaar_modules():
 
 class PerformanceTests(unittest.TestCase):
     def setUp(self):
-        self.xdg = tempfile.mkdtemp(prefix="omarchy-mx-perf-")
+        self.xdg = tempfile.mkdtemp(prefix="mx-unison-perf-")
         self.old_xdg = os.environ.get("XDG_RUNTIME_DIR")
         self.old_config = os.environ.get("XDG_CONFIG_HOME")
         os.environ["XDG_RUNTIME_DIR"] = self.xdg
@@ -132,7 +132,7 @@ class PerformanceTests(unittest.TestCase):
         self.assertTrue(self.mxctl.device_is_online(Protocol()))
 
     def test_write_status_skips_identical_payload(self):
-        path = Path(self.xdg) / "omarchy-mx" / "status.json"
+        path = Path(self.xdg) / "mx-unison" / "status.json"
         self.mxctl.runtime_dir()
         last = [""]
         self.assertTrue(self.mxctl.write_status(path, {"ok": True, "n": 1}, last))

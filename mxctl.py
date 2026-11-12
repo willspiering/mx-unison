@@ -7,7 +7,7 @@
 # the Free Software Foundation; either version 2 of the License, or
 # (at your option) any later version.
 
-"""JSON CLI for Omarchy MX Control. Talks to Logitech HID++ devices via Solaar."""
+"""JSON CLI for Omarchy MX Unison. Talks to Logitech HID++ devices via Solaar."""
 
 from __future__ import annotations
 
@@ -840,8 +840,8 @@ def load_settings(mods, dev, live: bool = False, on_setting=None) -> list[dict]:
 
 def runtime_path(xdg_runtime_dir: str | None, uid: int) -> str:
     if xdg_runtime_dir:
-        return f"{xdg_runtime_dir}/omarchy-mx"
-    return f"/run/user/{uid}/omarchy-mx"
+        return f"{xdg_runtime_dir}/mx-unison"
+    return f"/run/user/{uid}/mx-unison"
 
 
 def ensure_private_dir(path: Path) -> Path:
@@ -1037,6 +1037,11 @@ def describe_device(mods, dev, full: bool = True, read_hosts: bool = True, live:
             payload["settings"] = settings
             on_settings(payload, done, total)
 
+        try:
+            from logitech_receiver.hidpp20_constants import SupportedFeature
+            payload["changeHostVersion"] = dev.features.get_feature_version(SupportedFeature.CHANGE_HOST)
+        except Exception:
+            payload["changeHostVersion"] = 0
         # Settings first so controls paint before the host-name round trips.
         payload["settings"] = load_settings(mods, dev, live=live, on_setting=stream if on_settings else None)
         if read_hosts:
@@ -1201,9 +1206,10 @@ def discover_payload() -> dict:
     return {
         "ok": True,
         "installed": installed,
-        "hasActions": (Path(os.environ.get("XDG_CONFIG_HOME") or str(Path.home() / ".config")) / "omarchy-mx" / "actions.json").is_file(),
+        "hasSwitch": switch_config(safe=True)["follow"] or bool(scroll_prefs()),
+        "hasActions": (Path(os.environ.get("XDG_CONFIG_HOME") or str(Path.home() / ".config")) / "mx-unison" / "actions.json").is_file(),
         # A saved acceleration override needs the helper running to apply it.
-        "hasPointer": (Path(os.environ.get("XDG_CONFIG_HOME") or str(Path.home() / ".config")) / "omarchy-mx" / "pointer.json").is_file(),
+        "hasPointer": (Path(os.environ.get("XDG_CONFIG_HOME") or str(Path.home() / ".config")) / "mx-unison" / "pointer.json").is_file(),
         "accessible": any(item.get("accessible") for item in visible) or not visible,
         "message": "" if installed else "Solaar is not installed. Install it with `omarchy pkg add solaar`, then reconnect the device.",
         "importError": "" if installed else "logitech_receiver not found",
@@ -1423,7 +1429,7 @@ PROFILE_MAX_BYTES = 262144
 
 def profiles_dir() -> Path:
     base = os.environ.get("XDG_CONFIG_HOME") or str(Path.home() / ".config")
-    return ensure_private_dir(Path(base) / "omarchy-mx")
+    return ensure_private_dir(Path(base) / "mx-unison")
 
 
 def profiles_file() -> Path:
@@ -1704,10 +1710,87 @@ def action_command(mods, opened, cmd, runtime):
         raise
 
 
+def scroll_prefs():
+    import mxscroll
+    path = profiles_dir() / "scroll.json"
+    try:
+        fd = os.open(path, os.O_RDONLY | os.O_NOFOLLOW)
+        try:
+            if not stat.S_ISREG(os.fstat(fd).st_mode):
+                return {}
+            raw = os.read(fd, 16385)
+        finally:
+            os.close(fd)
+        if len(raw) > 16384:
+            return {}
+        data = json.loads(raw)
+        if not isinstance(data, dict) or len(data) > 64:
+            return {}
+        return {str(k): mxscroll.factor(v) for k, v in data.items()}
+    except (OSError, ValueError, TypeError):
+        return {}
+
+
+def switch_config(safe=False):
+    import mxswitch
+    try:
+        return mxswitch.load(profiles_dir() / "switch.json")
+    except (OSError, ValueError):
+        if not safe:
+            raise
+        return mxswitch.empty()
+
+
+def switch_setting(mods, dev):
+    if not getattr(dev, "settings", None):
+        load_settings(mods, dev)
+    return find_setting(dev, "change-host") or find_setting(dev, "change_host")
+
+
+def switch_group(mods, opened, cmd):
+    import mxswitch
+    config = switch_config()
+    source = str(cmd.get("source") or "")
+    if source and (not config["follow"] or source != config["keyboard"]):
+        raise ValueError("Follow source is not configured")
+    try:
+        raw = (runtime_dir() / "status.json").read_bytes()
+        snapshot = json.loads(raw) if len(raw) <= 2_000_000 else {}
+    except (OSError, ValueError):
+        snapshot = {}
+    hosts = {str(d.get("id")): d.get("hosts", []) for d in snapshot.get("devices", [])}
+    work = mxswitch.prepare(config, list(iter_devices(opened)), device_id,
+                            device_is_online, lambda d: switch_setting(mods, d),
+                            cmd.get("target"), source, lambda d: hosts.get(device_id(d), []))
+    result = mxswitch.execute(work)
+    write_bytes(profiles_dir() / "switch-result.json", (json.dumps(result) + "\n").encode())
+
+
 def apply_cmd(mods, opened, cmd: dict) -> None:
     if not isinstance(cmd, dict):
         return
     op = str(cmd.get("op") or "")
+    if op == "scroll-set":
+        from mxscroll import factor
+        did = str(cmd.get("device") or "")
+        dev = next((d for d in iter_devices(opened) if device_id(d) == did), None)
+        if dev is None or not is_mouse_dev(dev):
+            raise ValueError("Select a connected mouse")
+        prefs = scroll_prefs()
+        if cmd.get("value") is None:
+            prefs.pop(did, None)
+        else:
+            prefs[did] = factor(cmd["value"])
+        write_bytes(profiles_dir() / "scroll.json", (json.dumps(prefs) + "\n").encode())
+        return
+    if op == "switch-config":
+        import mxswitch
+        config = mxswitch.validate(cmd.get("config"))
+        write_bytes(profiles_dir() / "switch.json", (json.dumps(config, indent=2) + "\n").encode())
+        return
+    if op == "switch-group":
+        switch_group(mods, opened, cmd)
+        return
     if op == "refresh":
         return
     if op == "profile-save":
@@ -1881,7 +1964,7 @@ def plan_cycle(cmds: list[dict], topology_changed: bool) -> dict:
     reopen = "reopen" in ops
     return {
         "reopen": topology_changed or reopen or refresh,
-        "full": topology_changed or reopen or refresh or "profile-apply" in ops,
+        "full": topology_changed or reopen or refresh or "profile-apply" in ops or "switch-group" in ops,
         # An explicit refresh bypasses Solaar's value cache: it exists to pick
         # up changes made on the hardware or from another host.
         "live": refresh,
@@ -1948,6 +2031,9 @@ def serve_command() -> int:
     last_text = [""]
     actions = None
     pointer = None
+    scroll = None
+    from mxswitch import Follower
+    follower = Follower()
     published_action_status = None
     runtime_fd = open_inotify(paths, IN_RUNTIME_MASK)
     hidraw_root = Path("/sys/class/hidraw")
@@ -1960,6 +2046,10 @@ def serve_command() -> int:
         # ts lets the UI tell a live snapshot from a stale cache left behind
         # by a previous session.
         payload["ts"] = int(time.time())
+        payload["scroll"] = scroll_prefs()
+        payload["scrollError"] = scroll.error if scroll else ""
+        payload["switchConfig"] = switch_config(safe=True)
+        payload["switchRuntime"] = follower.status()
         payload["profiles"] = load_profiles().get("profiles") or []
         payload["actions"] = actions.bindings if actions else []
         payload["actionRuntime"] = actions.status() if actions else {"activeDevices": [], "available": False, "error": ""}
@@ -1971,7 +2061,10 @@ def serve_command() -> int:
     def sync_pointer(payload: dict, force: bool = False) -> bool:
         if pointer is None:
             return False
-        return pointer.sync(list(payload.get("devices") or []), load_pointer_prefs().get("devices") or {}, force=force)
+        changed = pointer.sync(list(payload.get("devices") or []), load_pointer_prefs().get("devices") or {}, force=force)
+        if scroll:
+            changed = scroll.sync(list(payload.get("devices") or []), scroll_prefs(), force=force) or changed
+        return changed
 
     hid_devices, adapters = scan_hidraw_with_battery()
     topology = hidraw_topology()
@@ -2009,6 +2102,8 @@ def serve_command() -> int:
     from mxpointer import PointerRuntime
     actions = ActionRuntime(mods["base"], device_id)
     pointer = PointerRuntime()
+    from mxscroll import ScrollRuntime
+    scroll = ScrollRuntime(pointer)
     last_error = ""
     try:
         # Keep hidraw open for the session. Closing it rebinds the Bluetooth
@@ -2032,15 +2127,19 @@ def serve_command() -> int:
         publish(payload)
         last_heartbeat = time.monotonic()
         while True:
+            follower.sync(switch_config(safe=True), list(iter_devices(opened)), device_id)
             cmds = _read_cmds(paths)
             if not cmds:
                 event_fd = pointer.event_fd()
                 wait_for_event(
-                    [runtime_fd, hid_fd, actions.wakeup.reader, event_fd],
+                    [runtime_fd, hid_fd, actions.wakeup.reader, event_fd, follower.fd],
                     actions.wait_timeout(idle_timeout),
-                    keep=(event_fd,) if event_fd is not None else (),
+                    keep=tuple(fd for fd in (event_fd, follower.fd) if fd is not None),
                 )
                 cmds = _read_cmds(paths)
+            target = follower.poll(switch_config(safe=True))
+            if target is not None:
+                cmds.insert(0, {"op": "switch-group", "target": target, "source": switch_config()["keyboard"]})
             # A compositor config reload drops runtime device overrides.
             reloaded = pointer.poll()
             next_topology = hidraw_topology()
@@ -2123,12 +2222,16 @@ def serve_command() -> int:
             actions.sync(list(iter_devices(opened)), actions.bindings)
             # DPI edits rescale the curve; new hidraw nodes may be new mice.
             sync_pointer(payload, force=topology_changed or reloaded)
+            follower.sync(switch_config(safe=True), list(iter_devices(opened)), device_id)
             payload["lastError"] = last_error
             publish(payload)
             last_heartbeat = time.monotonic()
     except KeyboardInterrupt:
         pass
     finally:
+        follower.close()
+        if scroll:
+            scroll.shutdown()
         if pointer:
             pointer.shutdown()
         if actions:

@@ -1,4 +1,6 @@
-# Performance and stability review
+# Historical upstream performance and stability review
+
+> Inherited MX Control notes and measurements. These results were not measured again for MX Unison. Machine-specific language below refers to that earlier review environment.
 
 Reviewed 2026-09-07 against `bef2434`. This review fixes avoidable latency and recovery problems in the new action runtime. It does not certify hardware behavior or full Logi Options+ parity.
 

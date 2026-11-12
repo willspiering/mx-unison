@@ -5,3 +5,25 @@
 __pycache__/
 *.pyc
 .DS_Store
+
+# Local configuration, diagnostics, packaging and credentials
+.env
+.env.*
+*.pem
+*.key
+.venv/
+.pytest_cache/
+.coverage
+htmlcov/
+*.log
+*.pkg.tar.*
+backups/
+local/
+runtime/
+status.json
+switch.json
+switch-result.json
+actions.json
+profiles.json
+pointer.json
+scroll.json

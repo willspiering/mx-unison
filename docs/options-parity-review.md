@@ -1,4 +1,6 @@
-# MX Control review — September 7, 2026
+# Historical upstream Options parity review
+
+> Inherited MX Control engineering notes. This is historical context, not a current MX Unison validation report. See the README and architecture document for coordinated switching and scroll additions.
 
 MX Control is a useful Omarchy interface to Solaar's HID++ settings. It is not yet a replacement for Logi Options+. The discovery, shared service, command spool, hardware settings, and new software action runtime provide a foundation. Real-device validation and the cross-computer/automation workflows remain the largest gaps.
 
@@ -15,7 +17,7 @@ MX Control is a useful Omarchy interface to Solaar's HID++ settings. It is not y
 
 “Available” means there is an implementation for supported settings, not that every model has been hardware-tested.
 
-| Capability | MX Control status |
+| Capability | MX Unison status |
 | --- | --- |
 | Battery and connection status | Available, with kernel/HID++/Bluetooth sources |
 | DPI, wheel direction, SmartShift | Available when exposed by the device |

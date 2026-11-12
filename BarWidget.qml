@@ -7,7 +7,7 @@ import "Model.js" as Model
 
 BarWidget {
   id: root
-  moduleName: "io.github.zachwilke.mx"
+  moduleName: "local.mx-unison"
 
   readonly property bool opened: panelLoader.item ? panelLoader.item.opened === true : false
   readonly property bool popoutSwitchClosing: panelLoader.item ? panelLoader.item.popoutSwitchClosing === true : false
@@ -121,8 +121,9 @@ BarWidget {
 
   IpcHandler {
     enabled: root.ipcOwner
-    target: "io.github.zachwilke.mx"
+    target: "local.mx-unison"
 
+    function switchTogether(target: int): void { mx.switchTogether(target) }
     function refresh(): void { root.broadcast("refresh") }
     function open(): void { root.open() }
     function close(): void { root.close() }
@@ -136,7 +137,7 @@ BarWidget {
     anchors.fill: parent
     bar: root.bar
     tooltipText: {
-      if (!mx.hasDevice) return mx.installed ? "No MX device" : "MX Control — install Solaar"
+      if (!mx.hasDevice) return mx.installed ? "No MX device" : "MX Unison — install Solaar"
       var name = Model.plainHidText(mx.selectedDevice && mx.selectedDevice.name ? mx.selectedDevice.name : "MX")
       var link = Model.connectionLabel(mx.selectedDevice)
       var battery = mx.batteryPercent >= 0 ? (" · " + mx.batteryPercent + "%") : ""

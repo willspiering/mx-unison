@@ -36,6 +36,10 @@ Item {
   property var adapters: []
   property var pendingWrites: []
   property var cmdQueue: []
+  property var scroll: ({})
+  property string scrollError: ""
+  property var switchConfig: ({version: 1, keyboard: "", follow: false, members: {}})
+  property var switchRuntime: ({})
   property var profiles: []
   // Per-device pointer acceleration overrides ({ deviceId: { acceleration } })
   // and the helper's report on applying them through Hyprland.
@@ -56,8 +60,8 @@ Item {
   // not be able to point FileView at the wrong file (or nowhere).
   readonly property string runtimeDir: {
     var dir = Quickshell.env("XDG_RUNTIME_DIR")
-    if (dir && dir !== "") return String(dir) + "/omarchy-mx"
-    return "/run/user/" + String(runtimeUid || "") + "/omarchy-mx"
+    if (dir && dir !== "") return String(dir) + "/mx-unison"
+    return "/run/user/" + String(runtimeUid || "") + "/mx-unison"
   }
   readonly property string statusPath: runtimeDir + "/status.json"
   readonly property string cmdPath: runtimeDir + "/cmd.json"
@@ -165,6 +169,10 @@ Item {
       var parsed = Model.parseStatus(raw)
       if (source === "file") lastStatusMs = Date.now()
       applyProgress(parsed)
+      if (parsed.scroll) scroll = parsed.scroll
+      scrollError = parsed.scrollError || ""
+      if (parsed.switchConfig) switchConfig = parsed.switchConfig
+      if (parsed.switchRuntime) switchRuntime = parsed.switchRuntime
       if (parsed.hasProfiles) profiles = parsed.profiles
       if (source === "file") {
         actions = parsed.actions || []
@@ -172,7 +180,7 @@ Item {
         pointer = parsed.pointer || {}
         pointerRuntime = parsed.pointerRuntime || {}
       }
-      if ((parsed.hasActions || parsed.hasPointer) && !daemonWanted) ensureDaemon()
+      if ((parsed.hasActions || parsed.hasPointer || parsed.hasSwitch) && !daemonWanted) ensureDaemon()
       var next = parsed.devices || []
       var nextHasHidpp = false
       for (var i = 0; i < next.length; i++) {
@@ -213,7 +221,7 @@ Item {
   function discover() {
     if (discoverProcess.running || helperPath === "") return
     refreshing = true
-    discoverProcess.command = ["python3", helperPath, "discover"]
+    discoverProcess.command = ["/usr/bin/python3", "-B", helperPath, "discover"]
     discoverProcess.running = true
   }
 
@@ -328,6 +336,24 @@ Item {
     actionStatusTimer.restart()
   }
 
+  function setScrollSpeed(value) {
+    if (!selectedDevice) return
+    ensureDaemon()
+    writeCmd({op: "scroll-set", device: String(selectedDevice.id), value: value})
+  }
+
+  function saveSwitchConfig(config) {
+    ensureDaemon()
+    writeCmd({op: "switch-config", config: config})
+  }
+
+  function switchTogether(target) {
+    ensureDaemon()
+    writeCmd({op: "switch-group", target: Number(target)})
+    actionStatus = "Sending coordinated switch commands…"
+    actionStatusTimer.restart()
+  }
+
   function renameHost(index, name) {
     if (!selectedDevice || selectedDevice.readonly) return
     var clean = String(name || "").trim()
@@ -389,7 +415,7 @@ Item {
     // /proc for the life of the process.
     cmdProcess.payload = JSON.stringify(cmd)
     cmdProcess.stdinEnabled = true
-    cmdProcess.command = ["python3", helperPath, "write-cmd"]
+    cmdProcess.command = ["/usr/bin/python3", "-B", helperPath, "write-cmd"]
     cmdProcess.running = true
   }
 
@@ -413,7 +439,7 @@ Item {
     if (discoverProcess.running) discoverProcess.running = false
     if (cmdProcess.running) cmdProcess.running = false
     if (helperPath !== "")
-      Quickshell.execDetached(["python3", helperPath, "cleanup"])
+      Quickshell.execDetached(["/usr/bin/python3", "-B", helperPath, "cleanup"])
   }
 
   Component.onCompleted: {
@@ -468,7 +494,7 @@ Item {
   Process {
     id: mkdirProcess
     running: false
-    command: ["python3", root.helperPath, "runtime-dir"]
+    command: ["/usr/bin/python3", "-B", root.helperPath, "runtime-dir"]
     onExited: Qt.callLater(function() { if (statusFile) statusFile.reload() })
   }
 
@@ -488,7 +514,7 @@ Item {
   Process {
     id: daemon
     running: root.daemonWanted && !root.peerServing && !daemonRestart.running
-    command: ["python3", root.helperPath, "serve"]
+    command: ["/usr/bin/python3", "-B", root.helperPath, "serve"]
     onStarted: {
       root.daemonStartedMs = Date.now()
       root.hidppTicks = 0
