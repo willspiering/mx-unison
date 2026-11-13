@@ -1807,11 +1807,49 @@ def note_bounces(opened, before_paths) -> str:
             continue
         ts, kind = RECENT_DEPARTURES.pop(did)
         after = int(round(now - ts))
-        log_switch({"ts": int(time.time()), "trigger": "return", "target": None, "result": "bounced",
+        # Timing alone cannot tell a rejected connection from a quick trip
+        # back, so this is recorded for diagnosis but not shown as an error.
+        log_switch({"ts": int(time.time()), "trigger": "return", "target": None, "result": "returned",
                     "error": "", "steps": [{"kind": kind, "channel": 0, "attempts": 0, "outcome": f"back after {after}s"}]})
-        message = (f"The {kind} came back after {after} s: the other computer did not accept it. "
-                   "Check that it is awake with Bluetooth on, then try again.")
+        message = f"The {kind} reconnected here {after} s after switching."
     return message
+
+
+def remember_home_channels(work, home) -> None:
+    """After a switch, keep each device's cached channel at this computer's.
+
+    Solaar caches the channel last written. A device seen here again is on
+    this computer's channel, so leaving the cache at the destination makes
+    the UI think it is elsewhere.
+    """
+    for did, _dev, setting, _channel in work:
+        channel = home.get(did)
+        if channel is None:
+            continue
+        try:
+            setting.update(channel, save=False)
+        except Exception:
+            pass
+
+
+def revive_receiver_devices(opened) -> bool:
+    """Ping receiver-attached devices Solaar marked offline.
+
+    A failed ping (for example the departure check after a switch) leaves the
+    device offline in Solaar until another ping succeeds, which blocks every
+    setting, action and Easy-Switch request after it returns. Bluetooth
+    devices get a fresh object on reconnect and need no help.
+    """
+    changed = False
+    for dev in iter_devices(opened):
+        if getattr(dev, "receiver", None) is None or getattr(dev, "online", None) is not False:
+            continue
+        try:
+            if dev.ping():
+                changed = True
+        except Exception:
+            pass
+    return changed
 
 
 def switch_group(mods, opened, cmd):
@@ -1835,7 +1873,11 @@ def switch_group(mods, opened, cmd):
                                 switch_device_present, lambda d: switch_setting(mods, d),
                                 cmd.get("target"), source, lambda d: hosts.get(device_id(d), []),
                                 current_for=switch_current_channel)
-        result = mxswitch.execute(work, present=switch_device_present)
+        home = {did: switch_current_channel(dev) for did, dev, _s, _c in work}
+        try:
+            result = mxswitch.execute(work, present=switch_device_present)
+        finally:
+            remember_home_channels(work, home)
         entry["steps"] = result["steps"]
         RECENT_DEPARTURES.clear()
         now = time.monotonic()
@@ -1875,6 +1917,8 @@ def apply_cmd(mods, opened, cmd: dict) -> None:
     if not isinstance(cmd, dict):
         return
     op = str(cmd.get("op") or "")
+    if cmd.get("device") or op == "switch-group":
+        revive_receiver_devices(opened)
     if op == "scroll-set":
         from mxscroll import factor
         did = str(cmd.get("device") or "")
@@ -2314,6 +2358,7 @@ def serve_command() -> int:
                 sysfs_changed, covered = refresh_batteries_sysfs(payload)
                 if time.monotonic() - last_heartbeat >= HEARTBEAT_SEC:
                     last_heartbeat = time.monotonic()
+                    revive_receiver_devices(opened)
                     refresh_batteries(opened, payload, skip=covered)
                     actions.check(list(iter_devices(opened)))
                     follower.verify()
@@ -2330,9 +2375,7 @@ def serve_command() -> int:
                     opened = prune_dead(opened, opened_instances, current_instances)
                     before_paths = {getattr(h, "path", None) for h in opened}
                     opened, permission_error = add_new_devices(mods, opened)
-                    bounced = note_bounces(opened, before_paths)
-                    if bounced:
-                        last_error = bounced
+                    note_bounces(opened, before_paths)
                     opened_instances = {path: inst for path, inst in current_instances.items()
                                         if path in {getattr(h, "path", None) for h in opened}}
                     schedule_reopen()

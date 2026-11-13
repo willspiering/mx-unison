@@ -86,8 +86,8 @@ class Reconnect(unittest.TestCase):
             self.assertEqual(mxctl.note_bounces([mouse], {"/dev/hidraw9"}), "")
             message = mxctl.note_bounces([mouse], set())
             log = (Path(tmp) / "switch-log.jsonl").read_text()
-        self.assertIn("mouse came back after 12 s", message)
-        self.assertIn('"bounced"', log)
+        self.assertIn("mouse reconnected here 12 s", message)
+        self.assertIn('"returned"', log)
         self.assertEqual(mxctl.RECENT_DEPARTURES, {})
 
     def test_old_departures_expire(self):
@@ -95,6 +95,24 @@ class Reconnect(unittest.TestCase):
         mxctl.RECENT_DEPARTURES["x"] = (mxctl.time.monotonic() - 100, "mouse")
         self.assertEqual(mxctl.note_bounces([], set()), "")
         self.assertEqual(mxctl.RECENT_DEPARTURES, {})
+
+    def test_revive_pings_only_offline_receiver_devices(self):
+        pinged = []
+        def dev(name, receiver, online):
+            return SimpleNamespace(name=name, receiver=receiver, online=online,
+                                   ping=lambda: pinged.append(name) or True)
+        devices = [dev("bolt-offline", object(), False), dev("bolt-online", object(), True),
+                   dev("bluetooth", None, False)]
+        from unittest.mock import patch
+        with patch.object(mxctl, "iter_devices", lambda opened: iter(devices)):
+            self.assertTrue(mxctl.revive_receiver_devices([]))
+        self.assertEqual(pinged, ["bolt-offline"])
+
+    def test_home_channel_restored_after_switch(self):
+        updates = []
+        setting = SimpleNamespace(update=lambda value, save: updates.append((value, save)))
+        mxctl.remember_home_channels([("kbd", None, setting, 0), ("mouse", None, setting, 0)], {"kbd": 1, "mouse": None})
+        self.assertEqual(updates, [(1, False)])
 
 
 if __name__ == "__main__":

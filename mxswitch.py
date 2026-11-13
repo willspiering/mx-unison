@@ -243,6 +243,14 @@ class Follower:
     def _arm(self):
         """Enable key reporting and verify it stuck. Command thread only."""
         from logitech_receiver.hidpp20_constants import SupportedFeature
+        # A receiver device keeps one Solaar object across trips away. Once a
+        # ping has marked it offline, Solaar refuses every request until a
+        # ping succeeds again, so re-arming would fail forever.
+        if getattr(self.dev, "online", True) is False:
+            try:
+                self.dev.ping()
+            except Exception:
+                pass
         self._set_reporting(ANALYTICS_ON)
         for cid in self.cids:
             reply = self.dev.feature_request(SupportedFeature.REPROG_CONTROLS_V4, GET_CID_REPORTING, cid >> 8, cid & 0xFF)

@@ -282,6 +282,14 @@ class KeyReportFollow(unittest.TestCase):
         self.sync(follower, keyboard)
         self.assertFalse(follower.status()["rearmPending"])
 
+    def test_arm_pings_keyboard_marked_offline(self):
+        keyboard, follower = _Keyboard(), mxswitch.Follower()
+        pings = []
+        keyboard.online = False
+        keyboard.ping = lambda: pings.append(True) or True
+        self.sync(follower, keyboard)
+        self.assertEqual(pings, [True])
+
     def test_departing_key_press_marks_away(self):
         follower = mxswitch.Follower()
         follower.fd, follower.number, follower.feature, follower.mode = 77, 2, 8, "key-report"
