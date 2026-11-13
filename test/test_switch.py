@@ -102,6 +102,17 @@ class Switching(unittest.TestCase):
                                 current_for=lambda d: {"mouse": 0, "keys": 1}[d.id])
         self.assertEqual(none, [])
 
+    def test_follow_skips_offline_members_manual_does_not(self):
+        offline = lambda d: d.id != "mouse"
+        skipped = []
+        work = mxswitch.prepare(self.config, self.devices, lambda d: d.id, offline,
+                                lambda d: self.settings.get(d.id), 2, source="keys", skipped=skipped)
+        self.assertEqual(work, [])
+        self.assertEqual(skipped, ["mouse"])
+        with self.assertRaisesRegex(ValueError, "offline; nothing was switched"):
+            mxswitch.prepare(self.config, self.devices, lambda d: d.id, offline,
+                             lambda d: self.settings.get(d.id), 2)
+
     def test_unknown_current_channel_still_switches(self):
         work = mxswitch.prepare(self.config, self.devices, lambda d: d.id, lambda d: True,
                                 lambda d: self.settings.get(d.id), 2, current_for=lambda d: None)

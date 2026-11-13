@@ -191,6 +191,7 @@ Limits:
 
 - **This works in one direction only, from this computer outward.** When you press an Easy-Switch key on another computer, this computer can't see the press, and the mouse is no longer connected here to command. To switch back with one key press, the other computer needs its own switching software. Otherwise, press the mouse's own channel button. See [Using several computers](#using-several-computers).
 - The keyboard has already started its own switch; the group mapping decides where the other devices go. Pressing the key for the channel you are already on does nothing.
+- Group members that are not connected here at that moment (for example a Bluetooth mouse still reconnecting after a trip back) are skipped rather than cancelling the switch. Popup and shortcut switches stay all-or-nothing, so the keyboard is kept here when the group cannot move.
 - Key reporting is reset when the keyboard reconnects, so the helper turns it back on when the keyboard returns.
 - Events can be missed during startup, reconnection, sleep or a slow HID++ request. On the tested keyboard the report arrived before it dropped its link, and the mouse switched within the same second; other models may differ.
 - It is not Logitech's persistent cookie-based device linking.

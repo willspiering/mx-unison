@@ -1866,13 +1866,15 @@ def switch_group(mods, opened, cmd):
     hosts = {str(d.get("id")): d.get("hosts", []) for d in snapshot.get("devices", [])}
     entry = {"ts": int(time.time()), "trigger": "follow" if source else "manual",
              "target": cmd.get("target"), "steps": [], "result": "ok", "error": ""}
+    skipped: list = []
+    kinds = {device_id(d): mxswitch.device_kind(d) for d in iter_devices(opened)}
     try:
         # Preflight with a live ping, not Solaar's cached online flag: a handle
         # left over from before a reconnect looks online but reaches nothing.
         work = mxswitch.prepare(config, list(iter_devices(opened)), device_id,
                                 switch_device_present, lambda d: switch_setting(mods, d),
                                 cmd.get("target"), source, lambda d: hosts.get(device_id(d), []),
-                                current_for=switch_current_channel)
+                                current_for=switch_current_channel, skipped=skipped)
         home = {did: switch_current_channel(dev) for did, dev, _s, _c in work}
         try:
             result = mxswitch.execute(work, present=switch_device_present)
@@ -1889,6 +1891,8 @@ def switch_group(mods, opened, cmd):
         entry.update(result="error", error=plain_hid_text(str(exc))[:300], steps=getattr(exc, "steps", []))
         raise
     finally:
+        entry["steps"] = list(entry["steps"]) + [{"kind": kinds.get(did, "device"), "channel": 0, "attempts": 0,
+                                                  "outcome": "not here"} for did in skipped]
         log_switch(entry)
 
 

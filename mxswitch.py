@@ -55,12 +55,17 @@ def load(path):
         os.close(fd)
 
 
-def prepare(config, devices, identity, online, setting_for, target, source="", hosts_for=None, current_for=None):
+def prepare(config, devices, identity, online, setting_for, target, source="", hosts_for=None, current_for=None, skipped=None):
     """Preflight every member before changing any device. Targets are 1..3.
 
     ``current_for`` reads a device's active channel live (not from a cached
     snapshot). Devices already on the target channel are skipped: a
     CHANGE_HOST to the current host makes the device drop and reconnect.
+
+    A manual switch is all-or-nothing: an offline member stops it before
+    anything is sent, so the keyboard stays here. When following a keyboard
+    (``source``), that keyboard has already left, so refusing protects
+    nothing: offline members are skipped and listed in ``skipped``.
     """
     config = validate(config)
     if type(target) is not int or target not in (1, 2, 3):
@@ -74,6 +79,10 @@ def prepare(config, devices, identity, online, setting_for, target, source="", h
             continue
         dev = available.get(did)
         if dev is None or not online(dev):
+            if source:
+                if skipped is not None:
+                    skipped.append(did)
+                continue
             raise ValueError("A grouped device is offline; nothing was switched")
         setting = setting_for(dev)
         if setting is None:

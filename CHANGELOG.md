@@ -13,6 +13,8 @@
 - Switch-group edits save immediately; Save/Revert removed.
 - Physical following re-arms after the keyboard returns: receiver connection notifications are enabled, receiver devices that Solaar marked offline are pinged again, and a heartbeat check repairs reporting.
 - Switching skips devices already on the target; each attempt is logged (kinds and outcomes only) in the runtime directory.
+- Physical following moves the members that are here and skips ones still reconnecting, instead of cancelling; manual switches remain all-or-nothing.
+- Arriving devices show "Connecting…" instead of a permissions warning; reopen retries start at 0.5 s, are cheap, and continue while a device is listed.
 - Replaced device-like identifiers in test fixtures with synthetic values.
 
 ## 0.1.0 — initial MX Unison baseline
