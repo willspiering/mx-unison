@@ -5,11 +5,16 @@ import qs.Commons
 import qs.Ui
 import "Model.js" as Model
 
+// Bar popup: glance and act. Devices and battery, switch the whole desk,
+// and a couple of everyday settings. Everything else lives in the settings
+// window, so this popup never needs scrolling and has no sliders.
 Panel {
   id: root
   moduleName: "local.mx-unison"
   ipcTarget: "local.mx-unison"
   manageIpc: false
+
+  Translations { id: strings; directory: Qt.resolvedUrl("i18n") }
 
   property var anchorItem: null
   property var hostWidget: null
@@ -24,25 +29,48 @@ Panel {
   readonly property string fontFamily: bar ? bar.fontFamily : Style.font.family
   readonly property var device: mx ? mx.selectedDevice : null
   readonly property bool canWrite: !!(mx && mx.hidppReady)
+  readonly property var devices: mx && mx.displayDevices ? mx.displayDevices : []
+  readonly property bool isKeyboard: Model.isKeyboard(device)
+
   readonly property var dpiSetting: Model.settingByNames(device, ["dpi", "dpi-extended", "dpi_extended"])
-  readonly property var pointerSetting: Model.settingByNames(device, ["pointer_speed", "pointer-speed"])
+  readonly property var dpiOptions: dpiSetting ? Model.dpiPresets(dpiSetting) : []
+  readonly property string dpiValue: dpiSetting ? String(Math.round(Model.numericValue(dpiSetting, 0))) : ""
   readonly property var smartSetting: Model.settingByNames(device, ["scroll-ratchet", "smartshift"])
-  readonly property var smartThresholdSetting: Model.settingByNames(device, ["smart-shift", "smartshift"])
-  readonly property var invertSetting: Model.settingByNames(device, ["hires-smooth-invert", "scroll-invert"])
-  readonly property var hiresSetting: Model.settingByNames(device, ["hires-smooth-resolution", "hires-scroll-mode"])
-  readonly property var thumbInvertSetting: Model.settingByNames(device, ["thumb-scroll-invert"])
-  readonly property var thumbModeSetting: Model.settingByNames(device, ["thumb-scroll-mode"])
-  readonly property var hostSetting: Model.settingByNames(device, ["change-host", "change_host"])
-  readonly property var reportSetting: Model.settingByNames(device, ["report_rate", "report-rate", "report_rate_extended"])
   readonly property var smartState: Model.smartShiftState(smartSetting)
+  readonly property var fnSetting: Model.settingByNames(device, ["fn-swap", "fn_swap"])
+  readonly property var backlightSetting: Model.settingByNames(device, ["backlight", "backlight_level", "backlight-level"])
+  readonly property var backlightOptions: backlightSetting && backlightSetting.kind === "choice" ? Model.choiceOptions(backlightSetting) : []
+  readonly property var hostSetting: Model.settingByNames(device, ["change-host", "change_host"])
   readonly property var hostOptions: Model.hostOptions(device)
-  readonly property bool showDevices: mx && mx.displayDevices && mx.displayDevices.length > 1
-  readonly property var adapters: mx && mx.adapters ? mx.adapters : []
-  readonly property bool showAccel: !!(mx && Model.isMouse(device))
-  readonly property bool showPointer: !!(dpiSetting || pointerSetting || showAccel)
-  readonly property bool showScroll: !!(smartSetting || smartThresholdSetting || invertSetting || hiresSetting)
-  readonly property bool showThumb: !!(thumbInvertSetting || thumbModeSetting)
-  readonly property bool showHosts: !!(hostSetting || (device && device.hosts && device.hosts.length))
+
+  // Switching the whole desk is the main daily action once a group exists.
+  readonly property var deskTargets: mx ? Model.deskTargets(mx.switchConfig, devices) : []
+  readonly property var deskOptions: deskTargets.filter(function(t) { return t.available }).map(function(t) {
+    return { value: String(t.target), label: t.label }
+  })
+  readonly property string deskHere: {
+    for (var i = 0; i < deskTargets.length; i++) if (deskTargets[i].here) return String(deskTargets[i].target)
+    return ""
+  }
+  readonly property bool showDesk: !!(mx && mx.installed && deskOptions.length > 1)
+  // Without a group, fall back to moving just the selected device.
+  readonly property bool showHosts: !showDesk && canWrite && !!hostSetting && hostOptions.length > 1
+
+  // Everyday settings for the selected device, in display order.
+  readonly property var quickItems: {
+    if (!canWrite) return []
+    var items = []
+    if (isKeyboard) {
+      if (fnSetting && fnSetting.kind === "toggle") items.push("fn")
+      if (backlightSetting && backlightSetting.kind === "toggle") items.push("backlight")
+      else if (backlightOptions.length > 1 && backlightOptions.length <= 4) items.push("backlight")
+    } else {
+      if (dpiOptions.length > 0) items.push("dpi")
+      if (smartSetting) items.push("smart")
+    }
+    return items
+  }
+
   readonly property string heroMeta: {
     if (!mx) return "Checking"
     if (!mx.installed) return "Needs Solaar"
@@ -60,17 +88,6 @@ Panel {
   property int cursorIndex: 0
   property bool cursorActive: false
   property bool dropdownOpen: false
-  property int phraseIndex: 0
-  readonly property var activePhrases: [
-    "Tuning the thumb",
-    "Ratcheting quietly",
-    "Smoothing the MagSpeed",
-    "Pairing the channel",
-    "Counting clicks",
-    "Balancing DPI",
-    "Watching the wheel"
-  ]
-  readonly property string heroPhraseText: !device ? heroMeta : activePhrases[phraseIndex % activePhrases.length]
   readonly property bool headerHasCursor: cursorActive && focusSection === "header"
 
   function hidName(item, fallback) {
@@ -116,9 +133,10 @@ Panel {
     mx.refresh()
   }
 
-  function openSettings() {
+  function openSettings(section) {
     var payload = {}
     if (device && device.id) payload.device = String(device.id)
+    if (section) payload.section = section
     root.close()
     Qt.callLater(function() {
       if (root.bar && root.bar.shell && typeof root.bar.shell.summon === "function")
@@ -137,26 +155,42 @@ Panel {
     writeSetting(setting, Model.nextToggleValue(setting))
   }
 
+  function switchDesk(target) {
+    if (!mx || String(target) === deskHere) return
+    mx.switchTogether(Number(target))
+  }
+
+  function stepChoice(options, current, dx) {
+    if (!options.length) return ""
+    var index = -1
+    for (var i = 0; i < options.length; i++) if (options[i].value === current) index = i
+    if (index < 0) {
+      // Not on a preset: step to the nearest preset in that direction.
+      var n = Number(current)
+      for (var j = 0; j < options.length; j++) if (Number(options[j].value) > n) { index = dx > 0 ? j - 1 : j; break }
+      if (index < 0) index = options.length - (dx > 0 ? 1 : 0)
+    }
+    var next = Math.max(0, Math.min(options.length - 1, index + dx))
+    return options[next].value
+  }
+
   function sectionList() {
     var sections = ["header"]
     if (mx && !mx.installed) sections.push("install")
     else if (mx && mx.installed && !mx.accessible) sections.push("access")
-    if (showDevices) sections.push("devices")
-    if (root.canWrite) {
-      if (showPointer) sections.push("pointer")
-      if (showScroll) sections.push("scroll")
-      if (showThumb) sections.push("thumb")
-      if (showHosts) sections.push("hosts")
-    }
+    if (devices.length > 1) sections.push("devices")
+    if (showDesk) sections.push("desk")
+    if (showHosts) sections.push("hosts")
+    if (quickItems.length) sections.push("quick")
+    if (canWrite) sections.push("settings")
     return sections
   }
 
   function sectionCount(section) {
-    if (section === "devices") return mx && mx.displayDevices ? mx.displayDevices.length : 0
-    if (section === "pointer") return (dpiSetting ? 1 : 0) + (pointerSetting ? 1 : 0) + (showAccel ? 1 : 0)
-    if (section === "scroll") return (smartSetting ? 1 : 0) + (invertSetting ? 1 : 0) + (hiresSetting ? 1 : 0)
-    if (section === "thumb") return (thumbInvertSetting ? 1 : 0) + (thumbModeSetting ? 1 : 0)
+    if (section === "devices") return devices.length
+    if (section === "desk") return deskOptions.length
     if (section === "hosts") return hostOptions.length
+    if (section === "quick") return quickItems.length
     return 1
   }
 
@@ -168,46 +202,58 @@ Panel {
     if (cursorIndex < 0) cursorIndex = 0
   }
 
+  function quickHasCursor(item) {
+    return cursorActive && focusSection === "quick" && quickItems[cursorIndex] === item
+  }
+
   function moveCursor(dx, dy) {
     cursorActive = true
     ensureCursor()
-    if (focusSection === "pointer" && dx !== 0 && dpiSetting && cursorIndex === 0) {
-      var bounds = Model.sliderBounds(dpiSetting)
-      var next = Model.numericValue(dpiSetting, bounds.min) + dx * bounds.step
-      next = Math.max(bounds.min, Math.min(bounds.max, next))
-      writeSetting(dpiSetting, Model.snapToChoices(dpiSetting, next))
-      return
+    if (dx !== 0) {
+      // Left/right moves within a row of choices, or steps a choice setting.
+      if (focusSection === "quick" && quickItems[cursorIndex] === "dpi") {
+        var dpi = stepChoice(dpiOptions, dpiValue, dx)
+        if (dpi !== "" && dpi !== dpiValue) writeSetting(dpiSetting, Number(dpi))
+        return
+      }
+      if (focusSection === "quick" && quickItems[cursorIndex] === "backlight" && backlightOptions.length) {
+        var level = stepChoice(backlightOptions, Model.choiceId(backlightSetting), dx)
+        if (level !== "" && level !== Model.choiceId(backlightSetting)) writeSetting(backlightSetting, level)
+        return
+      }
+      if (focusSection === "devices" || focusSection === "desk" || focusSection === "hosts") {
+        cursorIndex = Math.max(0, Math.min(sectionCount(focusSection) - 1, cursorIndex + dx))
+        return
+      }
     }
     if (dy === 0) return
+    var horizontal = focusSection === "desk" || focusSection === "hosts"
     var sections = sectionList()
     var index = sections.indexOf(focusSection)
     var count = sectionCount(focusSection)
-    if (dy > 0 && cursorIndex < count - 1) {
-      cursorIndex += 1
-      return
-    }
-    if (dy < 0 && cursorIndex > 0) {
-      cursorIndex -= 1
-      return
-    }
+    if (!horizontal && dy > 0 && cursorIndex < count - 1) { cursorIndex += 1; return }
+    if (!horizontal && dy < 0 && cursorIndex > 0) { cursorIndex -= 1; return }
     var nextSection = index + (dy > 0 ? 1 : -1)
     if (nextSection < 0 || nextSection >= sections.length) return
     focusSection = sections[nextSection]
-    cursorIndex = dy > 0 ? 0 : Math.max(0, sectionCount(focusSection) - 1)
+    var nextHorizontal = focusSection === "desk" || focusSection === "hosts"
+    cursorIndex = dy > 0 || nextHorizontal ? 0 : Math.max(0, sectionCount(focusSection) - 1)
   }
 
   function activateCursor() {
     ensureCursor()
     if (focusSection === "install" && mx) mx.installSolaar()
     else if (focusSection === "access" && mx) mx.triggerUdev()
-    else if (focusSection === "devices" && mx && mx.displayDevices[cursorIndex])
-      chooseDevice(mx.displayDevices[cursorIndex].id)
-    else if (focusSection === "pointer" && showAccel && cursorIndex === (dpiSetting ? 1 : 0) + (pointerSetting ? 1 : 0))
-      mx.setPointerAcceleration(mx.pointerAccelerated ? "system" : "mac")
-    else if (focusSection === "scroll" && cursorIndex === 0 && smartSetting) writeToggle(smartSetting)
-    else if (focusSection === "scroll" && invertSetting) writeToggle(invertSetting)
-    else if (focusSection === "thumb" && thumbInvertSetting) writeToggle(thumbInvertSetting)
-    else if (focusSection === "hosts" && hostSetting) writeSetting(hostSetting, hostOptions[cursorIndex].value)
+    else if (focusSection === "devices" && devices[cursorIndex]) chooseDevice(devices[cursorIndex].id)
+    else if (focusSection === "desk" && deskOptions[cursorIndex]) switchDesk(deskOptions[cursorIndex].value)
+    else if (focusSection === "hosts" && hostSetting && hostOptions[cursorIndex]) writeSetting(hostSetting, hostOptions[cursorIndex].value)
+    else if (focusSection === "quick") {
+      var item = quickItems[cursorIndex]
+      if (item === "smart") writeToggle(smartSetting)
+      else if (item === "fn") writeToggle(fnSetting)
+      else if (item === "backlight" && backlightSetting && backlightSetting.kind === "toggle") writeToggle(backlightSetting)
+    }
+    else if (focusSection === "settings") openSettings()
   }
 
   function setCursor(section, index) {
@@ -237,14 +283,14 @@ Panel {
     bar: root.bar
     open: root.opened
     focusTarget: keyCatcher
-    contentWidth: panel.fittedContentWidth(Style.space(400))
-    contentHeight: panel.fittedContentHeight(Math.max(column.implicitHeight, root.canWrite ? 0 : Style.space(260)), Style.space(620))
+    contentWidth: panel.fittedContentWidth(Style.space(380))
+    contentHeight: panel.fittedContentHeight(Math.max(column.implicitHeight, root.canWrite ? 0 : Style.space(200)), Style.space(620))
 
     PanelKeyCatcher {
       id: keyCatcher
       anchors.fill: parent
       // blocked, not enabled:false — disabling this item also disables the
-      // Flickable and every Dropdown inside it, so the popup never receives
+      // Flickable and every control inside it, so the popup never receives
       // clicks and dropdownOpen can stay stuck until the shell restarts.
       blocked: root.dropdownOpen
       onMoveRequested: function(dx, dy) {
@@ -258,6 +304,7 @@ Panel {
         if (t === "r" || t === "R") { if (mx) mx.refresh() }
       }
 
+      // Normally fits without scrolling; kept for very small screens.
       Flickable {
         id: panelFlick
         anchors.fill: parent
@@ -272,38 +319,31 @@ Panel {
         Column {
           id: column
           width: panelFlick.width
-          spacing: Style.space(12)
+          spacing: Style.space(14)
 
-          Item {
-            id: header
+          PanelHero {
+            id: hero
             width: parent.width
-            implicitHeight: hero.implicitHeight
-            readonly property bool ringVisible: root.headerHasCursor
-
-            PanelHero {
-              id: hero
-              width: parent.width
-              // HID names are untrusted peripheral identity; never render as rich text.
-              title: device ? root.hidName(device, "MX Unison") : "MX Unison"
-              meta: root.canWrite ? root.heroPhraseText : root.heroMeta
-              detail: device && Model.batteryLabel(device) ? Model.batteryLabel(device) : ""
-              foreground: root.foreground
-              fontFamily: root.fontFamily
-              iconOpacity: device && device.online !== false ? 1.0 : 0.5
-              iconComponent: Component {
-                MxIcon {
-                  iconSize: Style.font.display
-                  color: root.device && root.mx && root.mx.batteryLow ? root.urgent : root.foreground
-                  cutoutColor: root.surface
-                  lowBattery: !!(root.mx && root.mx.batteryLow)
-                  badgeColor: root.urgent
-                }
+            // HID names are untrusted peripheral identity; never render as rich text.
+            title: device ? root.hidName(device, "MX Unison") : "MX Unison"
+            meta: root.heroMeta
+            detail: ""
+            foreground: root.foreground
+            fontFamily: root.fontFamily
+            iconOpacity: device && device.online !== false ? 1.0 : 0.5
+            iconComponent: Component {
+              MxIcon {
+                iconSize: Style.font.display
+                color: root.device && root.mx && root.mx.batteryLow ? root.urgent : root.foreground
+                cutoutColor: root.surface
+                lowBattery: !!(root.mx && root.mx.batteryLow)
+                badgeColor: root.urgent
               }
             }
           }
 
           Text {
-            visible: mx && (mx.actionStatus !== "" || mx.lastError !== "")
+            visible: !!(mx && (mx.actionStatus !== "" || mx.lastError !== ""))
             width: parent.width
             text: mx && mx.actionStatus !== "" ? mx.actionStatus : (mx ? mx.lastError : "")
             textFormat: Text.PlainText
@@ -314,13 +354,14 @@ Panel {
           }
 
           Column {
-            visible: mx && !mx.installed
+            visible: !!(mx && !mx.installed)
             width: parent.width
             spacing: Style.space(8)
 
             Text {
               width: parent.width
-              text: "Solaar talks HID++ to the mouse. Install it, then reconnect the MX Master so hidraw permissions apply."
+              text: "MX Unison uses Solaar to talk to Logitech devices. Install it, then reconnect your devices."
+              textFormat: Text.PlainText
               color: root.dim
               font.family: root.fontFamily
               font.pixelSize: Style.font.body
@@ -339,13 +380,14 @@ Panel {
           }
 
           Column {
-            visible: mx && mx.installed && !mx.accessible
+            visible: !!(mx && mx.installed && !mx.accessible)
             width: parent.width
             spacing: Style.space(8)
 
             Text {
               width: parent.width
-              text: "Solaar is installed, but hidraw is still root-only. Reconnect the mouse or reload udev rules."
+              text: "Solaar is installed, but your user cannot open the devices yet. Reconnect them, or reload the device rules."
+              textFormat: Text.PlainText
               color: root.dim
               font.family: root.fontFamily
               font.pixelSize: Style.font.body
@@ -363,274 +405,79 @@ Panel {
             }
           }
 
+          // Devices: one row each, battery on the right. Selecting one picks
+          // which device the quick settings below apply to.
           Column {
-            visible: root.adapters.length > 0
+            visible: root.devices.length > 1
             width: parent.width
-            spacing: Style.space(8)
-
-            PanelSectionHeader {
-              text: "ADAPTERS"
-              foreground: root.foreground
-              fontFamily: root.fontFamily
-            }
+            spacing: Style.space(4)
 
             Repeater {
-              model: root.adapters
-              Text {
+              model: root.devices
+              Button {
+                id: deviceRow
                 required property var modelData
+                required property int index
                 width: parent ? parent.width : implicitWidth
-                // HID names are untrusted peripheral identity; never render as rich text.
-                text: root.hidName(modelData, "Receiver") + " · " + Model.connectionLabel(modelData)
-                textFormat: Text.PlainText
-                color: root.dim
-                font.family: root.fontFamily
-                font.pixelSize: Style.font.caption
-                wrapMode: Text.WordWrap
-              }
-            }
-          }
+                leftAlign: true
+                bordered: selected
+                text: root.hidName(modelData, "Device")
+                selected: !!(device && String(device.id) === String(modelData.id))
+                hasCursor: root.cursorActive && root.focusSection === "devices" && root.cursorIndex === index
+                foreground: root.foreground
+                fontFamily: root.fontFamily
+                onClicked: root.chooseDevice(modelData.id)
+                onHovered: function(on) { if (on) root.setCursor("devices", index) }
 
-          Column {
-            visible: root.showDevices
-            width: parent.width
-            spacing: Style.space(8)
-
-            PanelSectionHeader {
-              text: "DEVICES"
-              foreground: root.foreground
-              fontFamily: root.fontFamily
-            }
-
-            Flow {
-              width: parent.width
-              spacing: Style.space(6)
-              Repeater {
-                model: mx ? mx.displayDevices : []
-                Button {
-                  required property var modelData
-                  required property int index
-                  text: root.hidName(modelData, "Device") + (modelData.connection ? (" · " + Model.connectionLabel(modelData)) : "")
-                  bordered: true
-                  selected: device && String(device.id) === String(modelData.id)
-                  hasCursor: root.cursorActive && root.focusSection === "devices" && root.cursorIndex === index
-                  foreground: root.foreground
-                  fontFamily: root.fontFamily
-                  onClicked: root.chooseDevice(modelData.id)
-                  onHovered: function(on) { if (on) root.setCursor("devices", index) }
+                Text {
+                  anchors.right: parent.right
+                  anchors.rightMargin: Style.spacing.controlPaddingX
+                  anchors.verticalCenter: parent.verticalCenter
+                  text: deviceRow.modelData.online === false ? "Offline" : Model.batteryLabel(deviceRow.modelData)
+                  textFormat: Text.PlainText
+                  color: Model.batteryLow(deviceRow.modelData) ? root.urgent : root.dim
+                  font.family: root.fontFamily
+                  font.pixelSize: Style.font.caption
                 }
               }
             }
           }
 
+          // Whole-desk switching, named after your computers.
           Column {
-            visible: root.showPointer && root.canWrite
+            visible: root.showDesk
             width: parent.width
             spacing: Style.space(8)
 
-            PanelSeparator { foreground: root.foreground }
             PanelSectionHeader {
-              text: "POINTER"
+              text: strings.t("popup.switchDesk")
               foreground: root.foreground
               fontFamily: root.fontFamily
-            }
-
-            SliderBlock {
-              visible: !!dpiSetting
-              width: parent.width
-              title: "Sensitivity"
-              subtitle: dpiSetting ? (Math.round(Model.numericValue(dpiSetting, 0)) + " DPI") : ""
-              info: Model.helpForSetting(dpiSetting, "How far the pointer travels. 8K is 8000 DPI, the MX sensor maximum.")
-              setting: dpiSetting
-              formatValue: function(v) { return Math.round(v) + " DPI" }
-              hasCursor: root.cursorActive && root.focusSection === "pointer" && root.cursorIndex === 0
-              onHoveredIn: root.setCursor("pointer", 0)
-            }
-
-            Row {
-              visible: dpiSetting && Model.dpiPresets(dpiSetting).length > 0
-              width: parent.width
-              spacing: Style.space(8)
-
-              Text {
-                text: "Presets"
-                color: root.dim
-                font.family: root.fontFamily
-                font.pixelSize: Style.font.caption
-                font.bold: true
-                anchors.verticalCenter: parent.verticalCenter
-              }
-
-              InfoHint {
-                anchors.verticalCenter: parent.verticalCenter
-                text: "Jump to a common DPI. 8K is 8000 DPI — the same maximum Options+ offers on MX Master 3S."
-              }
-
-              Item { width: Math.max(0, 1); height: 1 }
             }
 
             ButtonGroup {
-              visible: dpiSetting && Model.dpiPresets(dpiSetting).length > 0
               width: parent.width
-              options: dpiSetting ? Model.dpiPresets(dpiSetting) : []
-              value: dpiSetting ? String(Math.round(Model.numericValue(dpiSetting, 0))) : ""
+              options: root.deskOptions
+              value: root.deskHere
               foreground: root.foreground
               accent: root.accent
               fontFamily: root.fontFamily
-              onChanged: function(value) { if (dpiSetting) root.writeSetting(dpiSetting, Number(value)) }
-            }
-
-            SliderBlock {
-              visible: !!pointerSetting
-              width: parent.width
-              title: pointerSetting ? pointerSetting.label : "Pointer speed"
-              subtitle: pointerSetting ? String(Math.round(Model.numericValue(pointerSetting, 0))) : ""
-              info: Model.helpForSetting(pointerSetting, "A software pointer-speed multiplier on top of hardware DPI.")
-              setting: pointerSetting
-            }
-
-            SliderBlock {
-              visible: !!(reportSetting && (reportSetting.kind === "range" || (reportSetting.choices && reportSetting.choices.length)))
-              width: parent.width
-              title: "Report rate"
-              subtitle: reportSetting ? Model.reportRateLabel(Model.numericValue(reportSetting, 0)) : ""
-              info: Model.helpForSetting(reportSetting, "How often the mouse reports movement, shown as Hz. Devices store the polling interval in milliseconds, so 1 ms is 1000 Hz.")
-              setting: reportSetting
-              formatValue: function(v) { return Model.reportRateLabel(v) }
-            }
-
-            HintedToggle {
-              visible: !!(reportSetting && reportSetting.kind === "toggle")
-              width: parent.width
-              label: "8K polling"
-              info: Model.helpForSetting(reportSetting, "Raises the report rate to the device maximum when the hardware supports it.")
-              checked: reportSetting ? Model.boolValue(reportSetting) : false
-              onClicked: root.writeToggle(reportSetting)
-            }
-
-            HintedToggle {
-              visible: root.showAccel
-              width: parent.width
-              label: "macOS-style acceleration"
-              info: Model.pointerAccelHelp()
-              checked: !!(mx && mx.pointerAccelerated)
-              hasCursor: root.cursorActive && root.focusSection === "pointer" && root.cursorIndex === (dpiSetting ? 1 : 0) + (pointerSetting ? 1 : 0)
-              onClicked: if (mx) mx.setPointerAcceleration(mx.pointerAccelerated ? "system" : "mac")
-              onHovered: function(on) { if (on) root.setCursor("pointer", (dpiSetting ? 1 : 0) + (pointerSetting ? 1 : 0)) }
+              cursorIndex: root.cursorActive && root.focusSection === "desk" ? root.cursorIndex : -1
+              onChanged: function(value) { root.switchDesk(value) }
+              onHovered: function(index, on) { if (on) root.setCursor("desk", index) }
             }
           }
 
+          // No group yet: move just this device.
           Column {
-            visible: root.showScroll && root.canWrite
+            visible: root.showHosts
             width: parent.width
             spacing: Style.space(8)
 
-            PanelSeparator { foreground: root.foreground }
             PanelSectionHeader {
-              text: "SCROLL WHEEL"
+              text: strings.t("popup.switchDevice")
               foreground: root.foreground
               fontFamily: root.fontFamily
-            }
-
-            HintedToggle {
-              visible: !!smartSetting
-              width: parent.width
-              label: "SmartShift"
-              info: Model.helpForSetting(smartSetting, "Ratchet at slow speeds, free-spin when you scroll quickly.")
-              checked: root.smartState.on
-              hasCursor: root.cursorActive && root.focusSection === "scroll" && root.cursorIndex === 0
-              onClicked: root.writeToggle(smartSetting)
-              onHovered: function(on) { if (on) root.setCursor("scroll", 0) }
-            }
-
-            SliderBlock {
-              visible: !!(smartThresholdSetting && smartThresholdSetting.kind === "range")
-              width: parent.width
-              title: "SmartShift threshold"
-              subtitle: smartThresholdSetting ? String(Math.round(Model.numericValue(smartThresholdSetting, 20))) : ""
-              info: Model.helpForSetting(smartThresholdSetting, "How fast you must scroll before the wheel leaves ratchet mode.")
-              setting: smartThresholdSetting
-              hasCursor: root.cursorActive && root.focusSection === "scroll" && root.cursorIndex === 0
-              onHoveredIn: root.setCursor("scroll", 0)
-            }
-
-            HintedToggle {
-              visible: !!invertSetting
-              width: parent.width
-              label: "Invert scroll"
-              info: Model.helpForSetting(invertSetting, "Reverse the vertical wheel direction.")
-              checked: invertSetting ? Model.boolValue(invertSetting) : false
-              hasCursor: root.cursorActive && root.focusSection === "scroll" && root.cursorIndex === (smartSetting ? 1 : 0)
-              onClicked: root.writeToggle(invertSetting)
-              onHovered: function(on) { if (on) root.setCursor("scroll", smartSetting ? 1 : 0) }
-            }
-
-            HintedToggle {
-              visible: !!hiresSetting && hiresSetting.kind === "toggle"
-              width: parent.width
-              label: "High-resolution scroll"
-              info: Model.helpForSetting(hiresSetting, "Finer wheel steps. Best over Bluetooth on the MX Master 3S.")
-              checked: hiresSetting ? Model.boolValue(hiresSetting) : false
-              hasCursor: root.cursorActive && root.focusSection === "scroll" && root.cursorIndex === ((smartSetting ? 1 : 0) + (invertSetting ? 1 : 0))
-              onClicked: root.writeToggle(hiresSetting)
-              onHovered: function(on) { if (on) root.setCursor("scroll", (smartSetting ? 1 : 0) + (invertSetting ? 1 : 0)) }
-            }
-          }
-
-          Column {
-            visible: root.showThumb && root.canWrite
-            width: parent.width
-            spacing: Style.space(8)
-
-            PanelSeparator { foreground: root.foreground }
-            PanelSectionHeader {
-              text: "THUMB WHEEL"
-              foreground: root.foreground
-              fontFamily: root.fontFamily
-            }
-
-            HintedToggle {
-              visible: !!thumbInvertSetting
-              width: parent.width
-              label: "Invert thumb wheel"
-              info: Model.helpForSetting(thumbInvertSetting, "Reverse horizontal / thumb-wheel scrolling.")
-              checked: thumbInvertSetting ? Model.boolValue(thumbInvertSetting) : false
-              hasCursor: root.cursorActive && root.focusSection === "thumb" && root.cursorIndex === 0
-              onClicked: root.writeToggle(thumbInvertSetting)
-              onHovered: function(on) { if (on) root.setCursor("thumb", 0) }
-            }
-
-            HintedToggle {
-              visible: !!thumbModeSetting && thumbModeSetting.kind === "toggle"
-              width: parent.width
-              label: "HID++ thumb wheel"
-              info: Model.helpForSetting(thumbModeSetting, "Send thumb-wheel motion as HID++ so Solaar rules can handle it.")
-              checked: thumbModeSetting ? Model.boolValue(thumbModeSetting) : false
-              hasCursor: root.cursorActive && root.focusSection === "thumb" && root.cursorIndex === (thumbInvertSetting ? 1 : 0)
-              onClicked: root.writeToggle(thumbModeSetting)
-              onHovered: function(on) { if (on) root.setCursor("thumb", thumbInvertSetting ? 1 : 0) }
-            }
-          }
-
-          Column {
-            visible: root.showHosts && root.canWrite
-            width: parent.width
-            spacing: Style.space(8)
-
-            PanelSeparator { foreground: root.foreground }
-            Row {
-              width: parent.width
-              spacing: Style.space(8)
-              PanelSectionHeader {
-                text: "EASY SWITCH"
-                foreground: root.foreground
-                fontFamily: root.fontFamily
-                width: parent.width - easyInfo.implicitWidth - parent.spacing
-              }
-              InfoHint {
-                id: easyInfo
-                anchors.verticalCenter: parent.verticalCenter
-                text: Model.helpForSetting(hostSetting, "Jump to another paired computer. Same as the channel slider on the bottom of the device.")
-              }
             }
 
             ButtonGroup {
@@ -646,18 +493,136 @@ Panel {
             }
           }
 
+          // Everyday settings for the selected device.
+          Column {
+            visible: root.quickItems.length > 0
+            width: parent.width
+            spacing: Style.space(10)
+
+            Column {
+              visible: root.quickItems.indexOf("dpi") >= 0
+              width: parent.width
+              spacing: Style.space(6)
+
+              Item {
+                width: parent.width
+                height: dpiTitle.implicitHeight
+                Text {
+                  id: dpiTitle
+                  text: strings.t("popup.sensitivity")
+                  textFormat: Text.PlainText
+                  color: root.foreground
+                  font.family: root.fontFamily
+                  font.pixelSize: Style.font.body
+                  font.bold: true
+                }
+                Text {
+                  anchors.right: parent.right
+                  text: root.dpiValue !== "" ? root.dpiValue + " DPI" : ""
+                  textFormat: Text.PlainText
+                  color: root.dim
+                  font.family: root.fontFamily
+                  font.pixelSize: Style.font.body
+                }
+              }
+
+              ButtonGroup {
+                width: parent.width
+                options: root.dpiOptions
+                value: root.dpiValue
+                foreground: root.foreground
+                accent: root.accent
+                fontFamily: root.fontFamily
+                cursorIndex: root.quickHasCursor("dpi") ? Math.max(0, root.dpiOptions.map(function(o) { return o.value }).indexOf(root.dpiValue)) : -1
+                onChanged: function(value) { if (root.dpiSetting) root.writeSetting(root.dpiSetting, Number(value)) }
+                onHovered: function(index, on) { if (on) root.setCursor("quick", root.quickItems.indexOf("dpi")) }
+              }
+            }
+
+            Toggle {
+              visible: root.quickItems.indexOf("smart") >= 0
+              width: parent.width
+              label: "SmartShift"
+              description: strings.t("popup.smartshiftHelp")
+              checked: root.smartState.on
+              hasCursor: root.quickHasCursor("smart")
+              foreground: root.foreground
+              fontFamily: root.fontFamily
+              accent: root.accent
+              titleSize: Style.font.body
+              onClicked: root.writeToggle(root.smartSetting)
+              onHovered: function(on) { if (on) root.setCursor("quick", root.quickItems.indexOf("smart")) }
+            }
+
+            Toggle {
+              visible: root.quickItems.indexOf("fn") >= 0
+              width: parent.width
+              label: root.fnSetting && root.fnSetting.label ? root.fnSetting.label : "Swap Fx function"
+              description: strings.t("popup.fnHelp")
+              checked: root.fnSetting ? Model.boolValue(root.fnSetting) : false
+              hasCursor: root.quickHasCursor("fn")
+              foreground: root.foreground
+              fontFamily: root.fontFamily
+              accent: root.accent
+              titleSize: Style.font.body
+              onClicked: root.writeToggle(root.fnSetting)
+              onHovered: function(on) { if (on) root.setCursor("quick", root.quickItems.indexOf("fn")) }
+            }
+
+            Toggle {
+              visible: root.quickItems.indexOf("backlight") >= 0 && !!root.backlightSetting && root.backlightSetting.kind === "toggle"
+              width: parent.width
+              label: "Backlight"
+              checked: root.backlightSetting ? Model.boolValue(root.backlightSetting) : false
+              hasCursor: root.quickHasCursor("backlight")
+              foreground: root.foreground
+              fontFamily: root.fontFamily
+              accent: root.accent
+              titleSize: Style.font.body
+              onClicked: root.writeToggle(root.backlightSetting)
+              onHovered: function(on) { if (on) root.setCursor("quick", root.quickItems.indexOf("backlight")) }
+            }
+
+            Column {
+              visible: root.quickItems.indexOf("backlight") >= 0 && root.backlightOptions.length > 0
+              width: parent.width
+              spacing: Style.space(6)
+              Text {
+                text: "Backlight"
+                textFormat: Text.PlainText
+                color: root.foreground
+                font.family: root.fontFamily
+                font.pixelSize: Style.font.body
+                font.bold: true
+              }
+              ButtonGroup {
+                width: parent.width
+                options: root.backlightOptions
+                value: root.backlightSetting ? Model.choiceId(root.backlightSetting) : ""
+                foreground: root.foreground
+                accent: root.accent
+                fontFamily: root.fontFamily
+                cursorIndex: root.quickHasCursor("backlight") ? Math.max(0, root.backlightOptions.map(function(o) { return o.value }).indexOf(Model.choiceId(root.backlightSetting))) : -1
+                onChanged: function(value) { if (root.backlightSetting) root.writeSetting(root.backlightSetting, value) }
+                onHovered: function(index, on) { if (on) root.setCursor("quick", root.quickItems.indexOf("backlight")) }
+              }
+            }
+          }
+
           Button {
             visible: root.canWrite
-            text: "All settings"
+            text: strings.t("popup.settings")
             bordered: true
             width: parent.width
+            hasCursor: root.cursorActive && root.focusSection === "settings"
             foreground: root.foreground
             fontFamily: root.fontFamily
             onClicked: root.openSettings()
+            onHovered: function(on) { if (on) root.setCursor("settings", 0) }
           }
 
           Column {
-            visible: mx && mx.installed && mx.accessible && !root.canWrite
+            visible: !!(mx && mx.installed && mx.accessible && !root.canWrite)
             width: parent.width
             spacing: Style.space(8)
 
@@ -723,188 +688,4 @@ Panel {
       }
     }
   }
-
-  Timer {
-    id: phraseTimer
-    interval: 3200
-    running: root.opened && root.canWrite
-    repeat: true
-    onTriggered: phraseSwap.restart()
-  }
-
-  SequentialAnimation {
-    id: phraseSwap
-    PropertyAnimation {
-      target: hero; property: "metaOpacity"
-      to: 0.0; duration: Style.duration(120); easing.type: Easing.OutQuad
-    }
-    ScriptAction {
-      script: root.phraseIndex = (root.phraseIndex + 1) % root.activePhrases.length
-    }
-    PropertyAnimation {
-      target: hero; property: "metaOpacity"
-      to: 1.0; duration: Style.duration(180); easing.type: Easing.OutCubic
-    }
-  }
-
-  component InfoHint: Item {
-    id: hint
-    property string text: ""
-
-    implicitWidth: Style.space(18)
-    implicitHeight: Style.space(18)
-    visible: String(text || "") !== ""
-
-    BorderSurface {
-      anchors.fill: parent
-      radius: Style.cornerRadius > 0 ? width / 2 : 0
-      color: hintMouse.containsMouse ? Style.hoverFillFor(root.foreground, root.accent) : "transparent"
-      borderSpec: Border.controlSpec(hintMouse.containsMouse ? "hover-cursor" : "normal", root.foreground, root.accent)
-
-      Text {
-        anchors.centerIn: parent
-        text: "i"
-        color: root.dim
-        font.family: root.fontFamily
-        font.pixelSize: Style.font.caption
-        font.bold: true
-        font.italic: true
-      }
-    }
-
-    MouseArea {
-      id: hintMouse
-      anchors.fill: parent
-      hoverEnabled: true
-      cursorShape: Qt.WhatsThisCursor
-    }
-
-    PanelToolTip {
-      visible: hintMouse.containsMouse
-      delay: 80
-      text: hint.text
-      fontFamily: root.fontFamily
-    }
-  }
-
-  component HintedToggle: Row {
-    id: hinted
-    property string label: ""
-    property string info: ""
-    property bool checked: false
-    property bool hasCursor: false
-    signal clicked()
-    signal hovered(bool isHovered)
-
-    spacing: Style.space(8)
-
-    Toggle {
-      width: parent.width - (hinted.info !== "" ? hintedInfo.implicitWidth + hinted.spacing : 0)
-      label: hinted.label
-      checked: hinted.checked
-      hasCursor: hinted.hasCursor
-      foreground: root.foreground
-      fontFamily: root.fontFamily
-      accent: root.accent
-      onClicked: hinted.clicked()
-      onHovered: function(on) { hinted.hovered(on) }
-    }
-
-    InfoHint {
-      id: hintedInfo
-      anchors.verticalCenter: parent.verticalCenter
-      text: hinted.info
-    }
-  }
-
-  component SliderBlock: Column {
-    id: sliderBlock
-    property string title: ""
-    property string subtitle: ""
-    property string info: ""
-    property var setting: null
-    property var formatValue: null
-    property string liveSubtitle: ""
-    property bool hasCursor: false
-    readonly property var bounds: Model.sliderBounds(setting)
-    signal hoveredIn()
-
-    function displayFor(value) {
-      if (sliderBlock.formatValue) return sliderBlock.formatValue(value)
-      return String(Math.round(value))
-    }
-
-    spacing: Style.space(4)
-
-    Item {
-      width: parent.width
-      height: Math.max(titleLabel.implicitHeight, valueLabel.implicitHeight)
-      Text {
-        id: titleLabel
-        text: sliderBlock.title
-        color: root.foreground
-        font.family: root.fontFamily
-        font.pixelSize: Style.font.body
-        font.bold: true
-        anchors.left: parent.left
-        anchors.verticalCenter: parent.verticalCenter
-      }
-      InfoHint {
-        anchors.left: titleLabel.right
-        anchors.leftMargin: Style.space(8)
-        anchors.verticalCenter: parent.verticalCenter
-        text: sliderBlock.info !== "" ? sliderBlock.info : Model.helpForSetting(sliderBlock.setting, "")
-      }
-      Text {
-        id: valueLabel
-        text: sliderBlock.liveSubtitle !== "" ? sliderBlock.liveSubtitle : sliderBlock.subtitle
-        color: root.dim
-        font.family: root.fontFamily
-        font.pixelSize: Style.font.body
-        anchors.right: parent.right
-        anchors.verticalCenter: parent.verticalCenter
-        elide: Text.ElideRight
-        width: Math.min(implicitWidth, parent.width - titleLabel.implicitWidth - Style.space(40))
-      }
-    }
-
-    CursorSurface {
-      width: parent.width
-      implicitHeight: slider.implicitHeight
-      hasCursor: sliderBlock.hasCursor
-      foreground: root.foreground
-
-      PanelSlider {
-        id: slider
-        anchors.left: parent.left
-        anchors.right: parent.right
-        bar: root.bar
-        minimum: sliderBlock.bounds.min
-        maximum: sliderBlock.bounds.max
-        step: sliderBlock.bounds.step
-        integer: true
-        value: sliderBlock.setting ? Model.numericValue(sliderBlock.setting, sliderBlock.bounds.min) : sliderBlock.bounds.min
-        onMoved: function(next) {
-          sliderBlock.liveSubtitle = sliderBlock.displayFor(Model.snapToChoices(sliderBlock.setting, next))
-        }
-        onReleased: function(next) {
-          sliderBlock.liveSubtitle = ""
-          if (sliderBlock.setting) root.writeSetting(sliderBlock.setting, Model.snapToChoices(sliderBlock.setting, next))
-        }
-      }
-
-      MouseArea {
-        anchors.fill: parent
-        hoverEnabled: true
-        acceptedButtons: Qt.NoButton
-        onEntered: sliderBlock.hoveredIn()
-        onExited: root.cursorActive = false
-      }
-
-      // PanelSlider takes every wheel event and writes the device on each
-      // tick; scroll the popup instead.
-      WheelGuard { anchors.fill: parent; target: panelFlick }
-    }
-  }
-
 }

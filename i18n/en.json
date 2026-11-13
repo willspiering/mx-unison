@@ -9,5 +9,11 @@
   "scroll.title": "Scroll speed",
   "scroll.apply": "Apply scroll speed",
   "scroll.reset": "Use system default",
-  "scroll.help": "Changes the scroll factor for this mouse on this computer. Your touchpad is unaffected."
+  "scroll.help": "Changes the scroll factor for this mouse on this computer. Your touchpad is unaffected.",
+  "popup.switchDesk": "Switch desk to",
+  "popup.switchDevice": "Switch this device to",
+  "popup.sensitivity": "Sensitivity",
+  "popup.smartshiftHelp": "Ratchets when you scroll slowly, spins freely when you scroll fast.",
+  "popup.fnHelp": "When on, F1\u2013F12 act as media keys; hold Fn for F-keys.",
+  "popup.settings": "Settings\u2026"
 }

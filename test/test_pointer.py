@@ -372,10 +372,12 @@ class UiContractTests(unittest.TestCase):
         self.assertIn('op: "pointer-set"', service)
         self.assertIn("parsed.hasPointer", service)
         self.assertIn("function setPointerAcceleration", service)
-        for text in (settings, panel):
-            self.assertIn("macOS-style acceleration", text)
-            self.assertIn("mx.setPointerAcceleration", text)
-            self.assertIn("Model.pointerAccelHelp()", text)
+        # Acceleration is configured in the settings window; the popup only
+        # carries everyday settings and must not grow sliders again.
+        self.assertIn("macOS-style acceleration", settings)
+        self.assertIn("mx.setPointerAcceleration", settings)
+        self.assertIn("Model.pointerAccelHelp()", settings)
+        self.assertNotIn("PanelSlider", panel)
         self.assertIn("function pointerMode", model)
         self.assertIn("function patchPointerMode", model)
         self.assertIn("pointerRuntime:", model)

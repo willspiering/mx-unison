@@ -1152,6 +1152,76 @@ function hostOptions(device) {
   ]
 }
 
+// Channel facts for one device: {name, paired, current} per channel 0..2.
+// Bluetooth devices report hosts[]; receiver devices often only expose the
+// change-host choices, named "N:hostname" by Solaar.
+function deviceChannels(device) {
+  var out = [{}, {}, {}]
+  var hosts = device && device.hosts ? device.hosts : []
+  var anyCurrent = false
+  for (var i = 0; i < hosts.length; i++) {
+    var h = hosts[i] || {}
+    var idx = Number(h.index)
+    if (!(idx >= 0 && idx < 3)) continue
+    if (h.name) out[idx].name = String(h.name)
+    if (h.paired === false) out[idx].paired = false
+    if (h.current) { out[idx].current = true; anyCurrent = true }
+  }
+  var setting = settingByNames(device, ["change-host", "change_host"])
+  var choices = setting && setting.choices ? setting.choices : []
+  for (var j = 0; j < choices.length; j++) {
+    var c = choices[j] || {}
+    var cid = Number(c.id)
+    if (!(cid >= 0 && cid < 3) || out[cid].name) continue
+    var m = /^\d+:(.+)$/.exec(String(c.name || ""))
+    if (m && m[1].trim()) out[cid].name = m[1].trim()
+  }
+  if (!anyCurrent) {
+    var active = hostActiveIndex(device)
+    if (active >= 0 && active < 3) out[active].current = true
+  }
+  return out
+}
+
+// The switch group as computers to switch to: one entry per logical target,
+// named from the members' stored host names. "here" marks the target every
+// member is currently on; "available" is false when any member is known to be
+// unpaired on that target's channel (switching would fail preflight).
+function deskTargets(config, devices) {
+  var members = config && config.members ? config.members : {}
+  var ids = Object.keys(members)
+  if (!ids.length) return []
+  var byId = {}
+  var list = Array.isArray(devices) ? devices : []
+  for (var i = 0; i < list.length; i++) if (list[i]) byId[String(list[i].id)] = list[i]
+  var keyboard = config && config.keyboard ? String(config.keyboard) : ""
+  // Prefer the keyboard's names, then other members in a stable order.
+  ids.sort(function(a, b) { return (a === keyboard ? 0 : 1) - (b === keyboard ? 0 : 1) || (a < b ? -1 : a > b ? 1 : 0) })
+  var targets = []
+  for (var t = 0; t < 3; t++) {
+    var name = "", here = true, available = true, known = 0
+    for (var k = 0; k < ids.length; k++) {
+      var dev = byId[ids[k]]
+      var channel = (members[ids[k]] || [])[t]
+      if (!dev || !(channel >= 0 && channel < 3)) { here = false; continue }
+      known += 1
+      var info = deviceChannels(dev)[channel]
+      if (!name && info.name) name = info.name
+      if (!info.current) here = false
+      if (info.paired === false) available = false
+    }
+    if (!known) here = false
+    targets.push({
+      target: t + 1,
+      label: name ? plainHidText(name) : ("Computer " + (t + 1)),
+      named: !!name,
+      here: here,
+      available: available
+    })
+  }
+  return targets
+}
+
 function mergeBluetoothBattery(devices, btDevices) {
   var list = Array.isArray(devices) ? devices.slice() : []
   var blues = Array.isArray(btDevices) ? btDevices : []
@@ -1203,6 +1273,8 @@ if (typeof module !== "undefined") {
     keyIsDiverted: keyIsDiverted,
     patchDeviceHostName: patchDeviceHostName,
     hostOptions: hostOptions,
+    deviceChannels: deviceChannels,
+    deskTargets: deskTargets,
     plainHidText: plainHidText,
     hidDisplayName: hidDisplayName,
     runtimeDir: runtimeDir,
