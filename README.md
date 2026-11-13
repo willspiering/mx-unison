@@ -115,7 +115,14 @@ If Omarchy keeps showing old UI after an update, run `omarchy restart shell`. Th
 
 ## Using it
 
-Click the mouse icon in the bar for the quick panel, then **All settings** for the full window. You can also open it from a terminal or keybinding:
+Click the mouse icon in the bar for the quick panel. It shows:
+
+- each device with its battery; click one to choose which device the quick settings apply to;
+- **Switch desk to**, one button per computer in your switch group, named after the computers stored on your devices, with the current one highlighted (or **Switch this device to** when no group is set up);
+- everyday settings: DPI presets and SmartShift for a mouse, Fn keys and backlight for a keyboard;
+- **Settings…** for everything else.
+
+The popup has no sliders and normally needs no scrolling. Arrow keys move between rows, left/right step DPI and backlight presets, and Enter activates. You can also open the full settings window from a terminal or keybinding:
 
 ```sh
 omarchy-shell shell summon local.mx-unison '{}'
@@ -125,7 +132,8 @@ Select a device to see the settings it reports.
 
 - Hardware settings apply immediately. There is no global undo.
 - Profiles and software actions have their own save and apply controls.
-- The switch-group editor has an explicit **Save group** button.
+- Switch-group changes, including physical following, save as you make them.
+- Scrolling over a slider scrolls the page; it never changes the setting.
 
 If Solaar is missing or your user lacks hidraw permission, the panel offers two buttons. **Install Solaar** opens a terminal running `omarchy pkg add solaar`. **Reload udev** opens a terminal that runs `udevadm control --reload-rules && udevadm trigger` through `sudo`, so you see and approve the command. Neither runs without you clicking it.
 
@@ -136,13 +144,13 @@ If Solaar is missing or your user lacks hidraw permission, the panel offers two 
 1. Pair each device with each computer using its normal Easy-Switch pairing process.
 2. In settings, open **Easy Switch** and select the devices that should move together.
 3. For each device, map logical **Target 1 / 2 / 3** to that device's physical channel **1 / 2 / 3**. Each target must use a different channel on a given device.
-4. Click **Save group**, then use **Switch to 1 / 2 / 3**.
+4. Changes save immediately. Use **Switch to 1 / 2 / 3**, or the popup's **Switch desk to** buttons.
 
 Channel numbers may differ between devices. If your laptop is channel 1 on the keyboard but channel 3 on the mouse, map Target 1 to keyboard channel 1 and mouse channel 3. Map targets to destination computers; do not assume equal channel numbers mean the same computer.
 
 ### What happens when you switch
 
-1. **Preflight.** Every group member must be online and support `change-host`. The target channel must exist and must not be marked unpaired in the latest device snapshot. If any check fails, nothing is switched.
+1. **Preflight.** Every group member must answer a live ping and support `change-host`. Devices already on the target channel are skipped. The target channel must exist and must not be marked unpaired in the latest device snapshot. If any check fails, nothing is switched.
 2. **Send.** Mice and other devices switch first. The keyboard switches last, so you keep a keyboard until the end.
 3. **Confirm departure.** Switch commands are fire-and-forget, so after each one the helper checks that the device stopped answering. If it is still connected, the command is resent once. If it still stays, switching stops and the keyboard is kept here.
 4. **Partial failure.** If a write fails, the remaining writes stop and the error says how many devices were already sent. There is no rollback once a device has left. MX Unison can confirm that a device left, but not that it arrived at the destination.
@@ -168,8 +176,7 @@ Back up the file before editing, then validate with `hyprctl reload` and `hyprct
 With this on, pressing the keyboard's own Easy-Switch button moves the rest of the group to the matching target.
 
 1. Include a keyboard in the group.
-2. Select it as the source and enable **Follow this keyboard's physical Easy-Switch buttons**.
-3. Save the group.
+2. Select it as the source and enable **Follow this keyboard's physical Easy-Switch buttons**. It takes effect immediately.
 
 The helper picks one of two ways to notice the key press:
 
