@@ -381,9 +381,13 @@ class UiContractTests(unittest.TestCase):
         self.assertIn("function pointerMode", model)
         self.assertIn("function patchPointerMode", model)
         self.assertIn("pointerRuntime:", model)
-        # The helper's error text is HID/compositor facing: keep it plain.
-        idx = settings.index("mx.pointerRuntime.error ? String(mx.pointerRuntime.error)")
-        self.assertIn("textFormat: Text.PlainText", settings[idx:idx + 200])
+        # The helper's error text is HID/compositor facing: it is shown as the
+        # acceleration field's help, which MxField renders as plain text.
+        idx = settings.index("String(mx.pointerRuntime.error)")
+        self.assertIn("help:", settings[max(0, idx - 200):idx])
+        field = (ROOT / "MxField.qml").read_text(encoding="utf-8")
+        idx = field.index("text: field.help")
+        self.assertIn("textFormat: Text.PlainText", field[idx:idx + 120])
 
 
 if __name__ == "__main__":

@@ -12,7 +12,7 @@ import time
 PLUGIN_ID = "local.mx-unison"
 RUNTIME = (
     "manifest.json", "LICENSE", "README.md", "ActionEditor.qml", "BarWidget.qml",
-    "MxIcon.qml", "MxSettings.qml", "Panel.qml", "Service.qml", "SwitchGroup.qml", "WheelGuard.qml",
+    "DeviceChannels.qml", "MxField.qml", "MxIcon.qml", "MxMeter.qml", "MxSection.qml", "MxSettings.qml", "Panel.qml", "Service.qml", "SwitchGroup.qml", "WheelGuard.qml",
     "Model.js", "mxactions.py", "mxctl.py", "mxpointer.py", "mxscroll.py", "mxswitch.py",
 )
 

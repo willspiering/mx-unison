@@ -16,7 +16,9 @@
 - Physical following moves the members that are here and skips ones still reconnecting, instead of cancelling; manual switches remain all-or-nothing.
 - Arriving devices show "Connecting…" instead of a permissions warning; reopen retries start at 0.5 s, are cheap, and continue while a device is listed.
 - Replaced device-like identifiers in test fixtures with synthetic values.
-- Redesigned the Easy Switch settings page: one row per computer (named from the devices' stored host names) with its own Switch button, Omarchy toggles for group membership, channels auto-matched by host name when a device joins, manual mapping behind **Customize channels**, and the selected device's own channel buttons and renaming on the same page.
+- Rebuilt the settings window in a minimal terminal style. The sidebar lists **Desk** and each device (no device dropdown); a device page shows its sections in order, with inline help, jump links and a status/progress view while its settings are still being read. Rare settings sit under **More**.
+- **Desk** shows one row per computer, named from the devices' stored host names, each with its own Switch button. Group membership uses whole-row toggles. A joining device's channels are matched by host name, with manual mapping behind **Customize channels**. A device's own channel buttons and channel renaming are on its page.
+- Fixed settings dropdowns that stopped following the device after being used once.
 
 ## 0.1.0 — initial MX Unison baseline
 

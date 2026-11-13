@@ -128,7 +128,7 @@ The popup has no sliders and normally needs no scrolling. Arrow keys move betwee
 omarchy-shell shell summon local.mx-unison '{}'
 ```
 
-Select a device to see the settings it reports.
+The window opens on **Desk**: your devices, and switching the whole group between computers. Pick a device in the sidebar (or on Desk) to open its page. It shows only the sections that device reports: pointer, scroll, thumb wheel, keys, buttons, its own Easy-Switch channels, profiles, and a collapsed **More** for rarely used settings. The sidebar links under the selected device jump to each section. Opening settings from the popup goes straight to that device. Until a device's settings have been read, which can take a few seconds over Bluetooth, its page shows a status line and progress instead.
 
 - Hardware settings apply immediately. There is no global undo.
 - Profiles and software actions have their own save and apply controls.
@@ -142,14 +142,14 @@ If Solaar is missing or your user lacks hidraw permission, the panel offers two 
 ### Set up
 
 1. Pair each device with each computer using its normal Easy-Switch pairing process.
-2. In settings, open **Easy Switch** and turn on each device that should move together under **Devices in the group**.
+2. In settings, open **Desk** and turn on each device that should move together under **Devices in the group**.
 3. Your computers appear under **Switch together**, named after the host names stored on the devices. When a device joins, its channels are matched to those computers by name, so devices that store channels in a different order still line up.
 4. If names are missing or differ (for example a receiver keyboard that only knows channel numbers), open **Customize channels** and pick, for each device, the channel it uses for each computer. Each computer must use a different channel on a given device; picking a channel that is already in use swaps the two.
 5. Changes save immediately. Use **Switch** next to a computer, or the popup's **Switch desk to** buttons.
 
 Channel numbers may differ between devices. If your laptop is channel 1 on the keyboard but channel 3 on the mouse, the laptop row should list keyboard channel 1 and mouse channel 3. If the stored names suggest a different mapping than the saved one, the page says so and offers **Match channels by name**. Names are only a hint; equal names on two devices do not prove they point at the same computer.
 
-The **Switch only …** card below moves just the selected device and lets you rename its channels.
+To move a single device, or to rename the channels stored on it, use the **Easy-Switch** section of that device's page.
 
 ### What happens when you switch
 

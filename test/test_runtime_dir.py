@@ -278,14 +278,20 @@ class RuntimeDirTests(unittest.TestCase):
             window = source[max(0, idx - 120):idx + 900]
             self.assertIn("textFormat: Text.PlainText", window, needle)
 
-        near(settings, 'text: device ? root.hidName(device, "Logitech device")')
-        near(settings, "Reading settings")
-        near(settings, "text: modelData.label\n                    textFormat:")
-        near(settings, 'text: root.hidName(modelData, "Profile")')
+        near(settings, 'root.plainName(device, "Logitech device")')
+        near(settings, "text: root.statusMessage()")
+        near(settings, 'text: root.plainName(deviceRow.item, "Logitech device")')
+        near(settings, "text: nav.label")
         near(panel, "return mx.lastError")
         self.assertIn("Model.plainHidText", bar)
         self.assertIn("tooltipText", bar)
-        self.assertIn("function hidName", settings)
+        # Device-supplied names are passed raw and only into plain-text sinks.
+        self.assertIn("function plainName", settings)
+        self.assertIn('label: root.plainName(modelData, "Profile")', settings)
+        field = (ROOT / "MxField.qml").read_text(encoding="utf-8")
+        near(field, "text: field.label")
+        near(field, "text: field.help")
+        near(field, "text: field.value")
 
 
 if __name__ == "__main__":

@@ -15,18 +15,70 @@ Item {
   property var service: null
   property bool closingFromHost: false
   property bool dropdownOpen: false
-  property string section: "device"
+  // "desk": devices overview and switching the whole group.
+  // "device": everything for the selected device, as one page of sections.
+  property string page: "desk"
   property bool showHardware: false
-  readonly property bool wideLayout: window.width >= Style.space(900)
-  readonly property var navigation: [
-    { key: "device", label: Model.isKeyboard(device) ? "Keyboard" : "Point & scroll", detail: Model.isKeyboard(device) ? "Function keys and backlighting" : "Sensitivity and wheel behavior" },
-    { key: "buttons", label: Model.isKeyboard(device) ? "Keys & actions" : "Buttons & actions", detail: "Shortcuts for the way you work" },
-    { key: "hosts", label: "Easy Switch", detail: "Your paired computers" },
-    { key: "profiles", label: "Profiles", detail: "Save and restore device settings" },
-    { key: "advanced", label: "Advanced", detail: "Additional device controls" }
-  ]
-  readonly property var currentPage: navigation.filter(function(n) { return n.key === root.section })[0]
-  onSectionChanged: flick.contentY = 0
+  property bool showMore: false
+  // Section to scroll to once the device page has laid out.
+  property string pendingJump: ""
+  readonly property bool wideLayout: window.width >= Style.space(820)
+  // Sections of the device page, in order, limited to what the device has.
+  readonly property var deviceSections: {
+    var out = []
+    if (!device) return out
+    if (!canWrite) return [{ key: "status", label: strings.t("section.status") }]
+    if (dpiSetting || Model.isMouse(device)) out.push({ key: "pointer", label: strings.t("section.pointer") })
+    if (smartSetting || smartThresholdSetting || invertSetting || hiresSetting || Model.isMouse(device)) out.push({ key: "scroll", label: strings.t("section.scroll") })
+    if (thumbInvertSetting || thumbModeSetting) out.push({ key: "thumb", label: strings.t("section.thumb") })
+    if (fnSetting || backlightSetting || platformSetting || lockSetting) out.push({ key: "keyboard", label: strings.t("section.keys") })
+    out.push({ key: "buttons", label: strings.t(Model.isKeyboard(device) ? "section.actions" : "section.buttons") })
+    out.push({ key: "channels", label: strings.t("section.channels") })
+    out.push({ key: "profiles", label: strings.t("section.profiles") })
+    if (extraSettings.length) out.push({ key: "more", label: strings.t("section.more") })
+    return out
+  }
+  onPageChanged: flick.contentY = 0
+
+  function showDesk() {
+    page = "desk"
+  }
+  function showDevice(id) {
+    if (id !== undefined && id !== null && mx) mx.selectDevice(String(id))
+    if (page !== "device") page = "device"
+    else flick.contentY = 0
+  }
+  function sectionItem(key) {
+    var kids = column.children
+    for (var i = 0; i < kids.length; i++)
+      if (kids[i].anchorKey === key && kids[i].visible) return kids[i]
+    return null
+  }
+  function jumpTo(key) {
+    if (key === "more") showMore = true
+    var item = sectionItem(key)
+    if (!item) return
+    var target = Math.max(0, Math.min(item.y - Style.space(20), flick.contentHeight - flick.height))
+    jumpAnim.stop()
+    if (Style.reduceMotion) { flick.contentY = target; return }
+    jumpAnim.to = target
+    jumpAnim.start()
+  }
+  // The section at the top of the viewport, for the sidebar highlight.
+  readonly property string activeSection: {
+    var y = flick.contentY + Style.space(48)
+    var current = deviceSections.length ? deviceSections[0].key : ""
+    if (flick.contentHeight - flick.height - flick.contentY < 2 && deviceSections.length) {
+      // At the bottom: the last visible section is the one being read.
+      for (var j = deviceSections.length - 1; j >= 0; j--)
+        if (sectionItem(deviceSections[j].key)) return deviceSections[j].key
+    }
+    for (var i = 0; i < deviceSections.length; i++) {
+      var item = sectionItem(deviceSections[i].key)
+      if (item && item.y <= y) current = deviceSections[i].key
+    }
+    return current
+  }
 
   function resolveService() {
     if (service || !shell) return
@@ -47,8 +99,22 @@ Item {
       if (payloadJson) {
         try {
           var parsed = JSON.parse(String(payloadJson))
-          if (parsed && parsed.device) mx.selectDevice(parsed.device)
-          if (parsed && navigation.some(function(n) { return n.key === parsed.section })) section = parsed.section
+          // Legacy section keys from older callers map onto the new pages.
+          var legacy = { device: "pointer", buttons: "buttons", profiles: "profiles", advanced: "more" }
+          if (parsed && parsed.device) { mx.selectDevice(parsed.device); page = "device" }
+          if (parsed && parsed.section === "hosts") page = "desk"
+          else if (parsed && parsed.section) {
+            page = "device"
+            pendingJump = legacy[parsed.section] || String(parsed.section)
+            // Already laid out (window reopened on the same page): jump now.
+            Qt.callLater(function() {
+              if (root.pendingJump !== "" && root.sectionItem(root.pendingJump)) {
+                var key = root.pendingJump
+                root.pendingJump = ""
+                root.jumpTo(key)
+              }
+            })
+          }
         } catch (e) { /* ignore */ }
       }
     }
@@ -143,13 +209,36 @@ Item {
     return names
   }
 
-  function hidName(item, fallback) {
-    var raw = ""
-    if (item && item.name) raw = String(item.name)
-    else if (fallback !== undefined && fallback !== null) raw = String(fallback)
-    if (raw.indexOf("&") === -1 && raw.indexOf("<") === -1 && raw.indexOf(">") === -1)
-      return raw
-    return raw.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;")
+  // Device-supplied names, for plain-text sinks only (no escaping needed).
+  function plainName(item, fallback) {
+    if (item && item.name) return String(item.name)
+    return fallback !== undefined && fallback !== null ? String(fallback) : ""
+  }
+
+  // Why the selected device (or the desk) has nothing to show yet.
+  function statusMessage() {
+    if (!mx.installed) return "Install Solaar to configure your devices: omarchy pkg add solaar"
+    if (mx.connecting) return "Connecting to your devices…"
+    if (!device) return "No Logitech devices are connected to this computer right now. If they are switched to another computer, switch them back here."
+    if (device.online === false) return "This device is offline. Wake it or reconnect it; its settings appear when it answers."
+    if (!mx.accessible) return "Waiting for device access. After installing Solaar, reconnect your device so its access rules apply."
+    return "Reading settings from the device" + (mx.progressLabel ? (" · " + mx.progressLabel) : "") + ". Bluetooth devices can take a few seconds."
+  }
+
+  function currentChannelText() {
+    var channels = Model.deviceChannels(device)
+    for (var i = 0; i < channels.length; i++)
+      if (channels[i].current) return "channel " + (i + 1) + (channels[i].name ? " · " + channels[i].name : "")
+    return ""
+  }
+
+  function deviceSummary(item) {
+    if (!item) return ""
+    var parts = [Model.isKeyboard(item) ? "keyboard" : Model.isMouse(item) ? "mouse" : "device"]
+    parts.push(item.online === false ? "offline" : Model.connectionLabel(item).toLowerCase())
+    var members = mx.switchConfig && mx.switchConfig.members ? mx.switchConfig.members : {}
+    if (members[String(item.id)]) parts.push("in group")
+    return parts.join("  ·  ")
   }
 
   function writeSetting(setting, value, key) {
@@ -185,14 +274,22 @@ Item {
     id: window
     title: "MX Unison"
     color: root.background
-    implicitWidth: 1100
-    implicitHeight: 820
+    implicitWidth: 1040
+    implicitHeight: 800
     minimumSize: Qt.size(560, 520)
     maximumSize: Qt.size(1400, 1200)
 
     onVisibleChanged: {
       if (!visible && !root.closingFromHost && root.shell && typeof root.shell.hide === "function")
         root.shell.hide("local.mx-unison")
+    }
+
+    NumberAnimation {
+      id: jumpAnim
+      target: flick
+      property: "contentY"
+      duration: Style.duration(220)
+      easing.type: Easing.OutCubic
     }
 
     FocusScope {
@@ -214,574 +311,614 @@ Item {
           }
         }
 
+        // ── Sidebar: Desk, then each device ────────────────────────────
         Rectangle {
+          id: sidebar
           visible: root.wideLayout
           anchors.left: parent.left
           anchors.top: parent.top
           anchors.bottom: parent.bottom
-          width: Style.space(212)
-          color: Qt.alpha(root.foreground, 0.025)
+          width: visible ? Style.space(250) : 0
+          color: Qt.alpha(root.foreground, 0.02)
           Rectangle { anchors.right: parent.right; width: 1; height: parent.height; color: Qt.alpha(root.foreground, 0.08) }
-          Column {
-            anchors.left: parent.left
-            anchors.right: parent.right
-            anchors.top: parent.top
-            anchors.margins: Style.space(20)
-            spacing: Style.space(28)
+
+          Flickable {
+            anchors.fill: parent
+            anchors.margins: Style.space(18)
+            anchors.bottomMargin: sidebarFooter.height + Style.space(24)
+            contentHeight: sideColumn.implicitHeight
+            clip: true
+            boundsBehavior: Flickable.StopAtBounds
+
             Column {
-              spacing: Style.space(6)
-              Text { text: "MX Unison"; color: root.foreground; font.family: root.fontFamily; font.pixelSize: Style.font.subtitle; font.bold: true }
-              Text { text: "Your devices. Your way."; color: root.dim; font.family: root.fontFamily; font.pixelSize: Style.font.caption }
-            }
-            Column {
+              id: sideColumn
               width: parent.width
-              spacing: Style.space(8)
+              spacing: Style.space(4)
+
+              Text {
+                text: "MX UNISON"
+                textFormat: Text.PlainText
+                color: root.foreground
+                font.family: root.fontFamily
+                font.pixelSize: Style.font.body
+                font.bold: true
+                font.letterSpacing: 2
+              }
+              Text {
+                text: !mx.installed ? strings.t("nav.solaarMissing")
+                  : mx.connecting ? strings.t("nav.connecting")
+                  : mx.hasHidppSnapshot ? "● " + strings.t("nav.live") : "○ " + strings.t("nav.reading")
+                textFormat: Text.PlainText
+                color: mx.hasHidppSnapshot && mx.installed ? root.accent : root.dim
+                font.family: root.fontFamily
+                font.pixelSize: Style.font.caption
+                bottomPadding: Style.space(18)
+              }
+
+              NavItem {
+                glyph: "◆"
+                label: strings.t("nav.desk")
+                detail: Object.keys(mx.switchConfig.members || {}).length ? strings.t("nav.deskGroup") : strings.t("nav.deskSetup")
+                selected: root.page === "desk"
+                onActivated: root.showDesk()
+              }
+
+              Text {
+                text: strings.t("nav.devices").toUpperCase()
+                textFormat: Text.PlainText
+                color: root.dim
+                font.family: root.fontFamily
+                font.pixelSize: Style.font.caption
+                font.letterSpacing: 1.5
+                topPadding: Style.space(18)
+                bottomPadding: Style.space(6)
+              }
+
               Repeater {
-                model: root.navigation
-                Button {
+                model: mx.displayDevices || []
+                Column {
+                  id: navDevice
                   required property var modelData
+                  readonly property bool current: root.page === "device" && root.device && String(root.device.id) === String(modelData.id)
                   width: parent.width
-                  text: modelData.label
-                  leftAlign: true
-                  verticalPadding: Style.space(12)
-                  selected: root.section === modelData.key
-                  bordered: selected
-                  focusable: true
-                  onClicked: root.section = modelData.key
+                  spacing: Style.space(2)
+                  NavItem {
+                    glyph: Model.kindIcon(navDevice.modelData)
+                    label: root.plainName(navDevice.modelData, "Logitech device")
+                    detail: navDevice.modelData.online === false ? "offline" : Model.connectionLabel(navDevice.modelData).toLowerCase()
+                    battery: Model.batteryPercent(navDevice.modelData)
+                    batteryLow: Model.batteryLow(navDevice.modelData)
+                    dimmed: navDevice.modelData.online === false
+                    selected: navDevice.current
+                    onActivated: root.showDevice(navDevice.modelData.id)
+                  }
+                  Repeater {
+                    model: navDevice.current ? root.deviceSections : []
+                    Button {
+                      required property var modelData
+                      width: parent.width
+                      leftAlign: true
+                      horizontalPadding: Style.space(34)
+                      verticalPadding: Style.space(3)
+                      text: modelData.label
+                      fontSize: Style.font.caption
+                      foreground: root.activeSection === modelData.key ? root.accent : root.dim
+                      focusable: true
+                      onClicked: root.jumpTo(modelData.key)
+                    }
+                  }
                 }
               }
+
+              Text {
+                visible: (mx.displayDevices || []).length === 0
+                width: parent.width
+                text: strings.t("nav.noDevices")
+                textFormat: Text.PlainText
+                color: root.dim
+                font.family: root.fontFamily
+                font.pixelSize: Style.font.caption
+                leftPadding: Style.space(10)
+              }
+            }
+          }
+
+          Column {
+            id: sidebarFooter
+            anchors.left: parent.left
+            anchors.right: parent.right
+            anchors.bottom: parent.bottom
+            anchors.margins: Style.space(18)
+            spacing: Style.space(6)
+            Button {
+              width: parent.width
+              text: strings.t("nav.refresh")
+              iconText: "󰑐"
+              iconSpinning: mx.connecting
+              leftAlign: true
+              bordered: true
+              focusable: true
+              tooltipText: strings.t("nav.refreshHelp")
+              onClicked: mx.refresh(true)
             }
           }
         }
 
+        // ── Page header ────────────────────────────────────────────────
         Column {
           id: header
           anchors.top: parent.top
-          anchors.left: parent.left
+          anchors.left: sidebar.right
           anchors.right: parent.right
-          anchors.margins: Style.space(28)
-          anchors.leftMargin: root.wideLayout ? Style.space(240) : Style.space(28)
-          spacing: Style.space(16)
+          anchors.leftMargin: Style.space(36)
+          anchors.rightMargin: Style.space(36)
+          anchors.topMargin: Style.space(28)
+          spacing: Style.space(10)
 
-          Row {
-            width: parent.width
-            spacing: Style.space(12)
-            Column {
-              width: parent.width - refreshButton.width - parent.spacing
-              spacing: Style.space(4)
-              Text {
-                text: "DEVICE SETTINGS"
-                color: root.dim
-                font.family: root.fontFamily
-                font.pixelSize: Style.font.caption
-              }
-              Text {
-                width: parent.width
-                text: device ? root.hidName(device, "Logitech device") : "Your Logitech devices"
-                textFormat: Text.PlainText
-                elide: Text.ElideRight
-                color: root.foreground
-                font.family: root.fontFamily
-                font.pixelSize: Style.font.subtitle * 1.5
-                font.bold: true
-              }
-              Text {
-                width: parent.width
-                text: device ? [Model.connectionLabel(device), Model.batteryLabel(device)].filter(function(v) { return !!v }).join("  ·  ") : "Connect a mouse or keyboard to get started."
-                textFormat: Text.PlainText
-                color: mx.batteryLow ? root.urgent : root.dim
-                font.family: root.fontFamily
-                font.pixelSize: Style.font.caption
-                wrapMode: Text.WordWrap
-              }
-            }
-            Button {
-              id: refreshButton
-              text: "Refresh"
-              bordered: true
-              focusable: true
-              anchors.verticalCenter: parent.verticalCenter
-              onClicked: mx.refresh(true)
-            }
-          }
-
-          Dropdown {
-            visible: mx.displayDevices.length > 1
-            width: parent.width
-            showLabel: false
-            value: device ? String(device.id) : ""
-            options: mx.displayDevices.filter(function(d) { return !!d }).map(function(d) { return { value: String(d.id), label: root.hidName(d, "Device") } })
-            onChanged: function(value) { mx.selectDevice(value) }
-            onPopupOpenChanged: root.dropdownOpen = popupOpen
-          }
-
+          // Narrow windows have no sidebar: pick a page here instead.
           Flow {
             visible: !root.wideLayout
             width: parent.width
             spacing: Style.space(6)
+            Button {
+              text: "◆ " + strings.t("nav.desk")
+              selected: root.page === "desk"
+              bordered: true
+              focusable: true
+              onClicked: root.showDesk()
+            }
             Repeater {
-              model: root.navigation
+              model: mx.displayDevices || []
               Button {
                 required property var modelData
-                text: modelData.label
-                selected: root.section === modelData.key
-                bordered: selected
+                text: root.plainName(modelData, "Device")
+                iconText: Model.kindIcon(modelData)
+                selected: root.page === "device" && root.device && String(root.device.id) === String(modelData.id)
+                bordered: true
                 focusable: true
-                onClicked: root.section = modelData.key
+                onClicked: root.showDevice(modelData.id)
               }
             }
           }
-        }
 
-        Flickable {
-          id: flick
-          anchors.top: header.bottom
-          anchors.bottom: parent.bottom
-          anchors.left: parent.left
-          anchors.right: parent.right
-          anchors.margins: Style.space(24)
-          anchors.topMargin: Style.space(24)
-          anchors.leftMargin: root.wideLayout ? Style.space(240) : Style.space(28)
-          contentWidth: width
-          contentHeight: column.implicitHeight
-          clip: true
-          boundsBehavior: Flickable.StopAtBounds
-          flickableDirection: Flickable.VerticalFlick
-          ScrollBar.vertical: ScrollBar { policy: ScrollBar.AsNeeded }
+          Text {
+            width: parent.width
+            text: root.page === "desk" ? strings.t("nav.desk").toUpperCase() : (device ? root.plainName(device, "Logitech device").toUpperCase() : "NO DEVICE")
+            textFormat: Text.PlainText
+            elide: Text.ElideRight
+            color: root.foreground
+            font.family: root.fontFamily
+            font.pixelSize: Style.font.subtitle * 1.35
+            font.bold: true
+            font.letterSpacing: 1
+          }
 
-          Column {
-            id: column
-            width: flick.width - Style.space(12)
-            spacing: Style.space(16)
-
-            Column {
-              width: parent.width
-              spacing: Style.space(6)
-              Text {
-                width: parent.width
-                text: root.currentPage.label
-                color: root.foreground
-                font.family: root.fontFamily
-                font.pixelSize: Style.font.subtitle * 1.35
-                font.bold: true
-              }
-              Text {
-                width: parent.width
-                text: root.currentPage.detail
-                color: root.dim
-                font.family: root.fontFamily
-                font.pixelSize: Style.font.bodySmall
-                wrapMode: Text.WordWrap
-              }
-            }
-
+          Row {
+            width: parent.width
+            spacing: Style.space(14)
             Text {
-              visible: mx.actionStatus !== "" || mx.lastError !== ""
-              width: parent.width
-              text: mx.actionStatus !== "" ? mx.actionStatus : mx.lastError
-              textFormat: Text.PlainText
-              color: mx.lastError !== "" && mx.actionStatus === "" ? root.urgent : root.dim
-              font.family: root.fontFamily
-              font.pixelSize: Style.font.bodySmall
-              wrapMode: Text.WordWrap
-            }
-
-            Text {
-              visible: !root.canWrite
-              width: parent.width
-              text: !mx.installed ? "Install Solaar to configure your devices: omarchy pkg add solaar"
-                : mx.connecting ? "Connecting to your devices…"
-                : !device ? "No Logitech devices are connected to this computer right now. If they are switched to another computer, switch them back here."
-                : device.online === false ? "This device is offline. Wake it or reconnect, then refresh."
-                : !mx.accessible ? "Waiting for device access. After installing Solaar, reconnect your device so its access rules apply."
-                : "Reading settings" + (mx.progressLabel ? (" · " + mx.progressLabel) : "") + " · " + mx.readPercent + "%"
+              anchors.verticalCenter: parent.verticalCenter
+              text: root.page === "desk"
+                ? strings.t((mx.displayDevices || []).length === 1 ? "desk.deviceCount1" : "desk.deviceCount").arg(I18n.formatNumber((mx.displayDevices || []).length))
+                : (device ? [Model.connectionLabel(device).toLowerCase(), root.currentChannelText()].filter(function(v) { return !!v }).join("  ·  ") : strings.t("desk.getStarted"))
               textFormat: Text.PlainText
               color: root.dim
               font.family: root.fontFamily
               font.pixelSize: Style.font.caption
-              wrapMode: Text.WordWrap
             }
+            MxMeter {
+              anchors.verticalCenter: parent.verticalCenter
+              visible: root.page === "device" && value >= 0
+              value: Model.batteryPercent(device) / 100
+              suffix: Model.batteryPercent(device) + "%"
+              warn: Model.batteryLow(device)
+            }
+          }
 
-            SectionCard {
-              visible: root.section === "device" && ((!!dpiSetting || Model.isMouse(device)) && root.canWrite)
-              width: parent.width
-              title: "Pointer"
-              SliderBlock {
-                visible: !!dpiSetting
-                width: parent.width
-                title: "Sensitivity"
-                subtitle: dpiSetting ? (Math.round(Model.numericValue(dpiSetting, 0)) + " DPI") : ""
-                info: Model.helpForSetting(dpiSetting, "How far the pointer travels. 8K is 8000 DPI.")
-                setting: dpiSetting
-                formatValue: function(v) { return Math.round(v) + " DPI" }
-              }
-              ButtonGroup {
-                visible: dpiSetting && Model.dpiPresets(dpiSetting).length > 0
-                width: parent.width
-                options: dpiSetting ? Model.dpiPresets(dpiSetting) : []
-                value: dpiSetting ? String(Math.round(Model.numericValue(dpiSetting, 0))) : ""
-                foreground: root.foreground
-                accent: root.accent
-                fontFamily: root.fontFamily
-                onChanged: function(value) { if (dpiSetting) root.writeSetting(dpiSetting, Number(value)) }
-              }
-              HintedToggle {
-                visible: Model.isMouse(device)
-                width: parent.width
-                label: "macOS-style acceleration"
-                info: Model.pointerAccelHelp()
-                checked: mx.pointerAccelerated
-                onClicked: mx.setPointerAcceleration(mx.pointerAccelerated ? "system" : "mac")
-              }
+          // Last action or error, one line.
+          Text {
+            visible: mx.actionStatus !== "" || mx.lastError !== ""
+            width: parent.width
+            text: "› " + (mx.actionStatus !== "" ? mx.actionStatus : mx.lastError)
+            textFormat: Text.PlainText
+            color: mx.lastError !== "" && mx.actionStatus === "" ? root.urgent : root.dim
+            font.family: root.fontFamily
+            font.pixelSize: Style.font.caption
+            wrapMode: Text.WordWrap
+          }
+
+          Rectangle { width: parent.width; height: 1; color: Qt.alpha(root.foreground, 0.10) }
+        }
+
+        // ── Page body ──────────────────────────────────────────────────
+        Flickable {
+          id: flick
+          anchors.top: header.bottom
+          anchors.bottom: parent.bottom
+          anchors.left: sidebar.right
+          anchors.right: parent.right
+          anchors.leftMargin: Style.space(36)
+          anchors.rightMargin: Style.space(24)
+          anchors.topMargin: Style.space(4)
+          contentWidth: width
+          contentHeight: column.implicitHeight + Style.space(24)
+          clip: true
+          boundsBehavior: Flickable.StopAtBounds
+          flickableDirection: Flickable.VerticalFlick
+          onMovementStarted: jumpAnim.stop()
+          ScrollBar.vertical: ScrollBar { policy: ScrollBar.AsNeeded }
+          onContentHeightChanged: {
+            if (root.pendingJump !== "" && root.page === "device" && root.sectionItem(root.pendingJump)) {
+              var key = root.pendingJump
+              root.pendingJump = ""
+              Qt.callLater(function() { root.jumpTo(key) })
+            }
+          }
+
+          Column {
+            id: column
+            width: flick.width - Style.space(12)
+            topPadding: Style.space(20)
+            spacing: Style.space(40)
+
+            // ── Desk ───────────────────────────────────────────────────
+            MxSection {
+              visible: root.page === "desk"
+              title: strings.t("nav.devices")
+              hint: (mx.displayDevices || []).length ? strings.t("desk.pickDevice") : ""
               Text {
-                visible: Model.isMouse(device) && !!(mx.pointerRuntime && mx.pointerRuntime.error) && mx.pointerAccelerated
+                visible: (mx.displayDevices || []).length === 0
                 width: parent.width
-                text: mx.pointerRuntime && mx.pointerRuntime.error ? String(mx.pointerRuntime.error) : ""
-                textFormat: Text.PlainText
-                color: root.urgent
-                font.family: root.fontFamily
-                font.pixelSize: Style.font.caption
-                wrapMode: Text.WordWrap
-              }
-            }
-
-            SectionCard {
-              visible: root.section === "device" && (!!(smartSetting || smartThresholdSetting || invertSetting || hiresSetting) && root.canWrite)
-              width: parent.width
-              title: "Scrolling"
-              HintedToggle {
-                visible: !!smartSetting
-                width: parent.width
-                label: "SmartShift"
-                info: Model.helpForSetting(smartSetting, "Ratchet at slow speeds, free-spin when you scroll quickly.")
-                checked: root.smartState.on
-                onClicked: root.writeToggle(smartSetting)
-              }
-              SliderBlock {
-                visible: !!(smartThresholdSetting && smartThresholdSetting.kind === "range")
-                width: parent.width
-                title: "SmartShift threshold"
-                subtitle: smartThresholdSetting ? String(Math.round(Model.numericValue(smartThresholdSetting, 20))) : ""
-                info: Model.helpForSetting(smartThresholdSetting, "How fast you must scroll before the wheel leaves ratchet mode.")
-                setting: smartThresholdSetting
-              }
-              HintedToggle {
-                visible: !!invertSetting
-                width: parent.width
-                label: "Invert scroll"
-                info: Model.helpForSetting(invertSetting, "Reverse the vertical wheel.")
-                checked: invertSetting ? Model.boolValue(invertSetting) : false
-                onClicked: root.writeToggle(invertSetting)
-              }
-              HintedToggle {
-                visible: !!hiresSetting && hiresSetting.kind === "toggle"
-                width: parent.width
-                label: "High-resolution scroll"
-                info: Model.helpForSetting(hiresSetting, "Finer wheel steps.")
-                checked: hiresSetting ? Model.boolValue(hiresSetting) : false
-                onClicked: root.writeToggle(hiresSetting)
-              }
-            }
-
-            SectionCard {
-              visible: root.section === "device" && (!!(thumbInvertSetting || thumbModeSetting) && root.canWrite)
-              width: parent.width
-              title: "Thumb wheel"
-              HintedToggle {
-                visible: !!thumbInvertSetting
-                width: parent.width
-                label: "Invert thumb wheel"
-                info: Model.helpForSetting(thumbInvertSetting, "Reverse the thumb wheel.")
-                checked: thumbInvertSetting ? Model.boolValue(thumbInvertSetting) : false
-                onClicked: root.writeToggle(thumbInvertSetting)
-              }
-              HintedToggle {
-                visible: !!thumbModeSetting && thumbModeSetting.kind === "toggle"
-                width: parent.width
-                label: "HID++ thumb wheel"
-                info: Model.helpForSetting(thumbModeSetting, "Send thumb-wheel motion as HID++ for Solaar rules.")
-                checked: thumbModeSetting ? Model.boolValue(thumbModeSetting) : false
-                onClicked: root.writeToggle(thumbModeSetting)
-              }
-            }
-
-            Column {
-              visible: root.section === "device" && root.device && root.device.kind === "mouse"
-              width: parent.width
-              spacing: Style.space(8)
-              Text {
-                text: strings.t("scroll.title")
-                textFormat: Text.PlainText
-                color: root.foreground
-                font.family: root.fontFamily
-                font.pixelSize: Style.font.title
-              }
-              Slider {
-                id: scrollSlider
-                width: parent.width
-                from: 0.25; to: 4; stepSize: 0.25
-                wheelEnabled: false
-                value: root.device ? Number(mx.scroll[String(root.device.id)] || 1) : 1
-                onPressedChanged: { if (!pressed) mx.setScrollSpeed(value) }
-              }
-              Row {
-                spacing: Style.space(8)
-                Button {
-                  text: strings.t("scroll.apply")
-                  bordered: true
-                  focusable: true
-                  onClicked: mx.setScrollSpeed(scrollSlider.value)
-                }
-                Button {
-                  text: strings.t("scroll.reset")
-                  bordered: true
-                  focusable: true
-                  onClicked: mx.setScrollSpeed(null)
-                }
-                Text {
-                  text: I18n.formatNumber(scrollSlider.value, 2) + "×"
-                  textFormat: Text.PlainText
-                  color: root.foreground
-                  font.family: root.fontFamily
-                }
-              }
-              Text {
-                width: parent.width
-                text: mx.scrollError || strings.t("scroll.help")
+                text: root.statusMessage()
                 textFormat: Text.PlainText
                 color: root.dim
-                wrapMode: Text.WordWrap
                 font.family: root.fontFamily
-                font.pixelSize: Style.font.caption
+                font.pixelSize: Style.font.body
+                wrapMode: Text.WordWrap
+              }
+              Repeater {
+                model: mx.displayDevices || []
+                DeviceRow {
+                  required property var modelData
+                  item: modelData
+                  onActivated: root.showDevice(modelData.id)
+                }
               }
             }
 
             SwitchGroup {
-              visible: root.section === "hosts"
+              visible: root.page === "desk"
               width: parent.width
               mx: root.mx
-              device: root.device
-              canWrite: root.canWrite
               onDropdownOpenChanged: root.dropdownOpen = dropdownOpen
             }
 
-            SectionCard {
-              visible: root.section === "buttons" && root.canWrite
-              width: parent.width
+            // ── Device: not ready yet ──────────────────────────────────
+            MxSection {
+              anchorKey: "status"
+              visible: root.page === "device" && !root.canWrite
+              title: strings.t("page.status")
+              Text {
+                width: parent.width
+                text: root.statusMessage()
+                textFormat: Text.PlainText
+                color: root.foreground
+                font.family: root.fontFamily
+                font.pixelSize: Style.font.body
+                wrapMode: Text.WordWrap
+              }
+              MxMeter {
+                visible: root.device && root.device.online !== false && mx.installed && mx.accessible && !mx.connecting
+                value: mx.readPercent / 100
+                cells: 24
+                suffix: mx.readPercent + "%"
+                fontSize: Style.font.body
+              }
+            }
+
+            // ── Device: pointer ────────────────────────────────────────
+            MxSection {
+              anchorKey: "pointer"
+              visible: root.page === "device" && root.canWrite && (!!dpiSetting || Model.isMouse(device))
+              title: strings.t("page.pointer")
+              SettingSlider {
+                visible: !!dpiSetting
+                label: strings.t("field.sensitivity")
+                help: Model.helpForSetting(dpiSetting, "How far the pointer travels. 8K is 8000 DPI.")
+                setting: dpiSetting
+                formatValue: function(v) { return Math.round(v) + " dpi" }
+              }
+              MxField {
+                visible: !!dpiSetting && Model.dpiPresets(dpiSetting).length > 0
+                label: strings.t("field.presets")
+                ButtonGroup {
+                  width: parent.width
+                  options: dpiSetting ? Model.dpiPresets(dpiSetting) : []
+                  value: dpiSetting ? String(Math.round(Model.numericValue(dpiSetting, 0))) : ""
+                  foreground: root.foreground
+                  accent: root.accent
+                  fontFamily: root.fontFamily
+                  onChanged: function(value) { if (dpiSetting) root.writeSetting(dpiSetting, Number(value)) }
+                }
+              }
+              MxField {
+                visible: Model.isMouse(device)
+                switchable: true
+                label: "macOS-style acceleration"
+                help: mx.pointerAccelerated && mx.pointerRuntime && mx.pointerRuntime.error
+                  ? String(mx.pointerRuntime.error) : Model.pointerAccelHelp()
+                checked: mx.pointerAccelerated
+                onToggled: mx.setPointerAcceleration(mx.pointerAccelerated ? "system" : "mac")
+              }
+            }
+
+            // ── Device: scroll ─────────────────────────────────────────
+            MxSection {
+              anchorKey: "scroll"
+              visible: root.page === "device" && root.canWrite && !!(smartSetting || smartThresholdSetting || invertSetting || hiresSetting || Model.isMouse(device))
+              title: strings.t("page.scroll")
+              SettingToggle {
+                visible: !!smartSetting
+                label: "SmartShift"
+                setting: smartSetting
+                fallbackHelp: "Ratchet at slow speeds, free-spin when you scroll quickly."
+                checked: root.smartState.on
+              }
+              SettingSlider {
+                visible: !!(smartThresholdSetting && smartThresholdSetting.kind === "range")
+                label: strings.t("field.shiftThreshold")
+                help: Model.helpForSetting(smartThresholdSetting, "How fast you must scroll before the wheel leaves ratchet mode.")
+                setting: smartThresholdSetting
+              }
+              SettingToggle {
+                visible: !!invertSetting
+                label: strings.t("field.invert")
+                setting: invertSetting
+                fallbackHelp: "Reverse the vertical wheel."
+              }
+              SettingToggle {
+                visible: !!hiresSetting && hiresSetting.kind === "toggle"
+                label: strings.t("field.hires")
+                setting: hiresSetting
+                fallbackHelp: "Finer wheel steps."
+              }
+              MxField {
+                visible: Model.isMouse(device)
+                label: strings.t("scroll.title").toLowerCase()
+                help: mx.scrollError || strings.t("scroll.help")
+                value: I18n.formatNumber(scrollSlider.liveValue, 2) + "×"
+                Row {
+                  width: parent.width
+                  spacing: Style.space(12)
+                  Item {
+                    width: parent.width - resetScroll.implicitWidth - parent.spacing
+                    height: scrollSlider.implicitHeight
+                    anchors.verticalCenter: parent.verticalCenter
+                    PanelSlider {
+                      id: scrollSlider
+                      anchors.left: parent.left
+                      anchors.right: parent.right
+                      bar: root.bar
+                      minimum: 0.25
+                      maximum: 4
+                      step: 0.25
+                      value: root.device ? Number(mx.scroll[String(root.device.id)] || 1) : 1
+                      onReleased: function(next) { mx.setScrollSpeed(next) }
+                    }
+                    WheelGuard { anchors.fill: parent; target: flick }
+                  }
+                  Button {
+                    id: resetScroll
+                    anchors.verticalCenter: parent.verticalCenter
+                    text: strings.t("scroll.default")
+                    bordered: true
+                    focusable: true
+                    tooltipText: strings.t("scroll.reset")
+                    onClicked: mx.setScrollSpeed(null)
+                  }
+                }
+              }
+            }
+
+            // ── Device: thumb wheel ────────────────────────────────────
+            MxSection {
+              anchorKey: "thumb"
+              visible: root.page === "device" && root.canWrite && !!(thumbInvertSetting || thumbModeSetting)
+              title: strings.t("page.thumb")
+              SettingToggle {
+                visible: !!thumbInvertSetting
+                label: strings.t("field.invert")
+                setting: thumbInvertSetting
+                fallbackHelp: "Reverse the thumb wheel."
+              }
+              SettingToggle {
+                visible: !!thumbModeSetting && thumbModeSetting.kind === "toggle"
+                label: "HID++ thumb wheel"
+                setting: thumbModeSetting
+                fallbackHelp: "Send thumb-wheel motion as HID++ for Solaar rules."
+              }
+            }
+
+            // ── Device: keyboard ───────────────────────────────────────
+            MxSection {
+              anchorKey: "keyboard"
+              visible: root.page === "device" && root.canWrite && !!(fnSetting || backlightSetting || platformSetting || lockSetting)
+              title: strings.t("page.keys")
+              SettingToggle {
+                visible: !!fnSetting && fnSetting.kind === "toggle"
+                label: fnSetting ? String(fnSetting.label).toLowerCase() : "fn swap"
+                setting: fnSetting
+                fallbackHelp: "Function keys send media actions by default."
+              }
+              SettingSlider {
+                visible: !!backlightSetting && backlightSetting.kind === "range"
+                label: backlightSetting ? String(backlightSetting.label).toLowerCase() : "backlight"
+                help: Model.helpForSetting(backlightSetting, "Keyboard backlight brightness.")
+                setting: backlightSetting
+              }
+              SettingChoice {
+                visible: !!backlightSetting && backlightSetting.kind === "choice"
+                setting: backlightSetting
+              }
+              SettingChoice {
+                visible: !!platformSetting && platformSetting.kind === "choice"
+                setting: platformSetting
+              }
+              Repeater {
+                model: lockSetting && lockSetting.keys ? lockSetting.keys : []
+                MxField {
+                  required property var modelData
+                  switchable: true
+                  label: "disable " + (modelData && modelData.label ? modelData.label : "key")
+                  checked: !!(modelData && modelData.value)
+                  onToggled: if (root.lockSetting) root.writeSetting(root.lockSetting, !(modelData && modelData.value), modelData.key)
+                }
+              }
+            }
+
+            // ── Device: buttons & actions ──────────────────────────────
+            MxSection {
+              anchorKey: "buttons"
+              visible: root.page === "device" && root.canWrite
+              title: Model.isKeyboard(device) ? strings.t("page.actions") : strings.t("page.buttons")
               ActionEditor {
                 width: parent.width
                 service: root.mx
                 device: root.device
                 controls: root.assignmentControls
               }
-            }
-            Button {
-              visible: root.section === "buttons" && root.canWrite
-              text: root.showHardware ? "Hide hardware controls" : "Hardware remaps & Solaar rules"
-              focusable: true
-              bordered: true
-              onClicked: root.showHardware = !root.showHardware
-            }
-
-            SectionCard {
-              visible: root.section === "buttons" && root.canWrite && root.showHardware
-              width: parent.width
-              title: Model.isKeyboard(device) ? "Key assignments" : "Button assignments"
-              description: "Hardware remaps apply across all apps. Solaar rule handling is for external Solaar rules; leave it Regular when using assignments above."
-              Text {
-                visible: root.assignmentControls.length === 0
-                width: parent.width
-                text: "This device does not expose configurable buttons or keys."
-                color: root.dim
-                font.family: root.fontFamily
-                font.pixelSize: Style.font.bodySmall
-                wrapMode: Text.WordWrap
+              Disclosure {
+                text: strings.t("page.hardware")
+                open: root.showHardware
+                onClicked: root.showHardware = !root.showHardware
               }
-              Repeater {
-                model: root.assignmentControls
-                Column {
-                  required property var modelData
+              Column {
+                visible: root.showHardware
+                width: parent.width
+                spacing: Style.space(16)
+                Text {
                   width: parent.width
-                  spacing: Style.space(10)
-                  Text {
-                    width: parent.width
-                    text: modelData.label
-                    textFormat: Text.PlainText
-                    color: root.foreground
-                    font.family: root.fontFamily
-                    font.pixelSize: Style.font.body
-                    font.bold: true
-                    wrapMode: Text.WordWrap
-                  }
-                  Flow {
-                    width: parent.width
-                    spacing: Style.space(12)
-                    MapRow {
-                      visible: !!modelData.remap
-                      width: parent.width < Style.space(560) || !modelData.divert ? parent.width : (parent.width - parent.spacing) / 2
-                      row: modelData.remap
-                      setting: root.remapSetting
-                      label: "Hardware action"
-                    }
-                    MapRow {
-                      visible: !!modelData.divert
-                      width: parent.width < Style.space(560) || !modelData.remap ? parent.width : (parent.width - parent.spacing) / 2
-                      row: modelData.divert
-                      setting: root.divertSetting
-                      label: "Solaar rule handling"
-                    }
-                  }
-                  PanelSeparator { foreground: root.foreground }
-                }
-              }
-
-            }
-
-            SectionCard {
-              visible: root.section === "device" && (!!(fnSetting || backlightSetting || platformSetting || lockSetting) && root.canWrite)
-              width: parent.width
-              title: "Keyboard"
-              HintedToggle {
-                visible: !!fnSetting && fnSetting.kind === "toggle"
-                width: parent.width
-                label: fnSetting ? fnSetting.label : "Fn swap"
-                info: Model.helpForSetting(fnSetting, "Function keys send media actions by default.")
-                checked: fnSetting ? Model.boolValue(fnSetting) : false
-                onClicked: root.writeToggle(fnSetting)
-              }
-              SliderBlock {
-                visible: !!backlightSetting && backlightSetting.kind === "range"
-                width: parent.width
-                title: backlightSetting ? backlightSetting.label : "Backlight"
-                subtitle: backlightSetting ? String(Math.round(Model.numericValue(backlightSetting, 0))) : ""
-                info: Model.helpForSetting(backlightSetting, "Keyboard backlight brightness.")
-                setting: backlightSetting
-              }
-              ExtraChoice {
-                visible: !!backlightSetting && backlightSetting.kind === "choice"
-                width: parent.width
-                setting: backlightSetting
-              }
-              ExtraChoice {
-                visible: !!platformSetting && platformSetting.kind === "choice"
-                width: parent.width
-                setting: platformSetting
-              }
-              Repeater {
-                model: lockSetting && lockSetting.keys ? lockSetting.keys : []
-                HintedToggle {
-                  required property var modelData
-                  width: parent.width
-                  visible: true
-                  label: "Disable " + (modelData && modelData.label ? modelData.label : "key")
-                  info: Model.helpForSetting(root.lockSetting, "Stops this key from sending its usual scancode.")
-                  checked: !!(modelData && modelData.value)
-                  onClicked: if (root.lockSetting) root.writeSetting(root.lockSetting, !(modelData && modelData.value), modelData.key)
-                }
-              }
-            }
-
-            SectionCard {
-              visible: root.section === "profiles" && (root.canWrite)
-              width: parent.width
-              title: "Local profiles"
-              Text {
-                width: parent.width
-                text: "Save this device’s current settings and apply them later. Profiles stay on this computer, include the pointer acceleration choice, and exclude the Easy Switch channel."
-                color: root.dim
-                font.family: root.fontFamily
-                font.pixelSize: Style.font.caption
-                wrapMode: Text.WordWrap
-              }
-              Row {
-                width: parent.width
-                spacing: Style.space(8)
-                TextField {
-                  id: profileField
-                  width: parent.width - saveBtn.implicitWidth - parent.spacing
-                  placeholderText: "Profile name, e.g. Work"
+                  text: root.assignmentControls.length === 0
+                    ? "This device does not expose configurable buttons or keys."
+                    : "Hardware remaps apply across all apps. Solaar rule handling is for external Solaar rules; leave it Regular when using the actions above."
+                  textFormat: Text.PlainText
+                  color: root.dim
                   font.family: root.fontFamily
-                  onAccepted: {
-                    mx.saveProfile(text)
-                    text = ""
-                  }
+                  font.pixelSize: Style.font.caption
+                  wrapMode: Text.WordWrap
                 }
-                Button {
-                  id: saveBtn
-                  text: "Save"
-                  bordered: true
-                  focusable: true
-                  foreground: root.foreground
-                  fontFamily: root.fontFamily
-                  onClicked: {
-                    mx.saveProfile(profileField.text)
-                    profileField.text = ""
+                Repeater {
+                  model: root.assignmentControls
+                  MxField {
+                    id: assignment
+                    required property var modelData
+                    stacked: true
+                    label: modelData.label
+                    Flow {
+                      width: parent.width
+                      spacing: Style.space(12)
+                      MapRow {
+                        visible: !!assignment.modelData.remap
+                        width: parent.width < Style.space(560) || !assignment.modelData.divert ? parent.width : (parent.width - parent.spacing) / 2
+                        row: assignment.modelData.remap
+                        setting: root.remapSetting
+                        label: "Hardware action"
+                      }
+                      MapRow {
+                        visible: !!assignment.modelData.divert
+                        width: parent.width < Style.space(560) || !assignment.modelData.remap ? parent.width : (parent.width - parent.spacing) / 2
+                        row: assignment.modelData.divert
+                        setting: root.divertSetting
+                        label: "Solaar rule handling"
+                      }
+                    }
                   }
                 }
               }
+            }
+
+            // ── Device: its own Easy-Switch channels ───────────────────
+            MxSection {
+              anchorKey: "channels"
+              visible: root.page === "device" && root.canWrite
+              title: strings.t("page.channels")
+              DeviceChannels {
+                width: parent.width
+                mx: root.mx
+                device: root.device
+                onOpenDesk: root.showDesk()
+              }
+            }
+
+            // ── Device: profiles ───────────────────────────────────────
+            MxSection {
+              anchorKey: "profiles"
+              visible: root.page === "device" && root.canWrite
+              title: strings.t("page.profiles")
+              hint: "Save this device’s current settings and apply them later. Profiles stay on this computer, include the pointer acceleration choice, and exclude the Easy-Switch channel."
               Repeater {
                 model: root.deviceProfiles
-                Row {
+                MxField {
+                  id: profileRow
                   required property var modelData
-                  width: parent.width
-                  spacing: Style.space(8)
-                  Text {
-                    text: root.hidName(modelData, "Profile") + (Model.profileAccelerated(modelData) ? "  ·  macOS-style acceleration" : "")
-                    textFormat: Text.PlainText
-                    color: root.foreground
-                    font.family: root.fontFamily
-                    font.pixelSize: Style.font.body
-                    anchors.verticalCenter: parent.verticalCenter
-                    width: parent.width - applyBtn.implicitWidth - delBtn.implicitWidth - parent.spacing * 2
-                    elide: Text.ElideRight
-                  }
-                  Button {
-                    id: applyBtn
-                    text: "Apply"
-                    bordered: true
-                    focusable: true
-                    foreground: root.foreground
-                    fontFamily: root.fontFamily
-                    onClicked: mx.applyProfile(modelData.name)
-                  }
-                  Button {
-                    id: delBtn
-                    text: "Delete"
-                    bordered: true
-                    focusable: true
-                    foreground: root.foreground
-                    fontFamily: root.fontFamily
-                    onClicked: mx.deleteProfile(modelData.name)
+                  label: root.plainName(modelData, "Profile")
+                  help: Model.profileAccelerated(modelData) ? strings.t("field.profileAccel") : ""
+                  Row {
+                    width: parent.width
+                    layoutDirection: Qt.RightToLeft
+                    spacing: Style.space(8)
+                    Button {
+                      text: "Delete"
+                      bordered: true
+                      focusable: true
+                      onClicked: mx.deleteProfile(profileRow.modelData.name)
+                    }
+                    Button {
+                      text: "Apply"
+                      bordered: true
+                      focusable: true
+                      onClicked: mx.applyProfile(profileRow.modelData.name)
+                    }
                   }
                 }
               }
-              Text {
-                visible: root.deviceProfiles.length === 0
-                text: "No profiles yet."
-                color: root.dim
-                font.family: root.fontFamily
-                font.pixelSize: Style.font.caption
+              MxField {
+                label: strings.t(root.deviceProfiles.length ? "field.newProfile" : "field.firstProfile")
+                Row {
+                  width: parent.width
+                  spacing: Style.space(8)
+                  TextField {
+                    id: profileField
+                    width: parent.width - saveBtn.implicitWidth - parent.spacing
+                    placeholderText: "Name, e.g. Work"
+                    onAccepted: { mx.saveProfile(text); text = "" }
+                  }
+                  Button {
+                    id: saveBtn
+                    text: "Save"
+                    bordered: true
+                    focusable: true
+                    enabled: profileField.text.trim() !== ""
+                    opacity: enabled ? 1 : 0.4
+                    onClicked: { mx.saveProfile(profileField.text); profileField.text = "" }
+                  }
+                }
               }
             }
 
-            Text {
-              visible: root.canWrite && ((root.section === "advanced" && extraSettings.length === 0)
-                || (root.section === "device" && !(dpiSetting || smartSetting || smartThresholdSetting || invertSetting || hiresSetting || thumbInvertSetting || thumbModeSetting || fnSetting || backlightSetting || platformSetting || lockSetting)))
-              width: parent.width
-              text: root.section === "advanced" ? "No additional settings are exposed by this device."
-                : "Use the other tabs to configure the settings this device exposes."
-              color: root.dim
-              font.family: root.fontFamily
-              font.pixelSize: Style.font.bodySmall
-              wrapMode: Text.WordWrap
-            }
-
-            SectionCard {
-              visible: root.section === "advanced" && (extraSettings.length > 0 && root.canWrite)
-              width: parent.width
-              title: "Advanced settings"
+            // ── Device: everything else, collapsed ─────────────────────
+            MxSection {
+              anchorKey: "more"
+              visible: root.page === "device" && root.canWrite && extraSettings.length > 0
+              title: strings.t("page.more")
+              hint: strings.t("page.moreHelp")
+              Disclosure {
+                text: root.showMore ? strings.t("page.moreHide") : strings.t(extraSettings.length === 1 ? "page.moreShow1" : "page.moreShow").arg(I18n.formatNumber(extraSettings.length))
+                open: root.showMore
+                onClicked: root.showMore = !root.showMore
+              }
               Repeater {
-                model: extraSettings
+                model: root.showMore ? extraSettings : []
                 ExtraBlock {
                   required property var modelData
                   width: parent.width
@@ -795,265 +932,341 @@ Item {
     }
   }
 
-  component SectionCard: Rectangle {
-    id: card
-    property string title: ""
-    property string description: ""
-    default property alias contents: cardContent.data
-    implicitHeight: cardLayout.implicitHeight + Style.space(36)
-    color: Qt.alpha(root.foreground, 0.025)
-    border.color: Qt.alpha(root.foreground, 0.10)
-    border.width: 1
-    radius: Style.cornerRadius
-    data: Column {
-      id: cardLayout
-      x: Style.space(18)
-      y: Style.space(18)
-      width: parent.width - Style.space(36)
-      spacing: Style.space(16)
+  // Sidebar entry: glyph, name, one dim detail line, optional battery.
+  component NavItem: Item {
+    id: nav
+    property string glyph: ""
+    property string label: ""
+    property string detail: ""
+    property int battery: -1
+    property bool batteryLow: false
+    property bool selected: false
+    property bool dimmed: false
+    signal activated()
+    width: parent ? parent.width : implicitWidth
+    implicitHeight: navText.implicitHeight + Style.space(14)
+    activeFocusOnTab: true
+    Keys.onReturnPressed: nav.activated()
+    Keys.onEnterPressed: nav.activated()
+    Keys.onSpacePressed: nav.activated()
+    Rectangle {
+      anchors.fill: parent
+      radius: Style.cornerRadius
+      color: nav.selected ? Qt.alpha(root.accent, 0.12)
+        : (nav.activeFocus || navMouse.containsMouse) ? Style.hoverFillFor(root.foreground, root.accent) : "transparent"
+      Behavior on color { ColorAnimation { duration: Style.duration(100) } }
+      Rectangle {
+        visible: nav.selected
+        width: 2
+        height: parent.height - Style.space(12)
+        anchors.verticalCenter: parent.verticalCenter
+        color: root.accent
+      }
+    }
+    Text {
+      id: navGlyph
+      x: Style.space(10)
+      y: Style.space(7)
+      width: Style.space(18)
+      text: nav.glyph
+      textFormat: Text.PlainText
+      color: nav.selected ? root.accent : root.dim
+      font.family: root.fontFamily
+      font.pixelSize: Style.font.body
+    }
+    Column {
+      id: navText
+      x: navGlyph.x + navGlyph.width + Style.space(6)
+      y: Style.space(7)
+      width: nav.width - x - Style.space(8)
+      spacing: Style.space(1)
+      opacity: nav.dimmed ? 0.55 : 1
       Text {
         width: parent.width
-        visible: card.title !== ""
-        text: card.title
+        text: nav.label
         textFormat: Text.PlainText
-        color: root.foreground
+        color: nav.selected ? root.accent : root.foreground
         font.family: root.fontFamily
         font.pixelSize: Style.font.body
-        font.bold: true
-        wrapMode: Text.WordWrap
+        font.bold: nav.selected
+        elide: Text.ElideRight
       }
-      Text {
-        visible: card.description !== ""
-        width: parent.width
-        text: card.description
-        color: root.dim
-        font.family: root.fontFamily
-        font.pixelSize: Style.font.bodySmall
-        wrapMode: Text.WordWrap
-      }
-      Column {
-        id: cardContent
-        width: parent.width
-        spacing: Style.space(14)
-      }
-    }
-  }
-
-  component HintedToggle: Row {
-    id: hinted
-    property string label: ""
-    property string info: ""
-    property bool checked: false
-    signal clicked()
-    spacing: Style.space(8)
-    Toggle {
-      width: parent.width - (hinted.info !== "" ? hintedInfo.implicitWidth + hinted.spacing : 0)
-      label: hinted.label
-      checked: hinted.checked
-      foreground: root.foreground
-      fontFamily: root.fontFamily
-      accent: root.accent
-      onClicked: hinted.clicked()
-    }
-    InfoHint {
-      id: hintedInfo
-      anchors.verticalCenter: parent.verticalCenter
-      text: hinted.info
-    }
-  }
-
-  component InfoHint: Item {
-    id: hint
-    property string text: ""
-    implicitWidth: Style.space(18)
-    implicitHeight: Style.space(18)
-    visible: String(text || "") !== ""
-    BorderSurface {
-      anchors.fill: parent
-      radius: Style.cornerRadius > 0 ? width / 2 : 0
-      color: hintMouse.containsMouse ? Style.hoverFillFor(root.foreground, root.accent) : "transparent"
-      borderSpec: Border.controlSpec(hintMouse.containsMouse ? "hover-cursor" : "normal", root.foreground, root.accent)
-      Text {
-        anchors.centerIn: parent
-        text: "i"
-        color: root.dim
-        font.family: root.fontFamily
-        font.pixelSize: Style.font.caption
-        font.bold: true
-        font.italic: true
+      Row {
+        spacing: Style.space(8)
+        Text {
+          text: nav.detail
+          textFormat: Text.PlainText
+          color: root.dim
+          font.family: root.fontFamily
+          font.pixelSize: Style.font.caption
+        }
+        MxMeter {
+          value: nav.battery / 100
+          cells: 5
+          suffix: nav.battery + "%"
+          warn: nav.batteryLow
+        }
       }
     }
     MouseArea {
-      id: hintMouse
+      id: navMouse
       anchors.fill: parent
       hoverEnabled: true
-      cursorShape: Qt.WhatsThisCursor
-    }
-    PanelToolTip {
-      visible: hintMouse.containsMouse
-      delay: 80
-      text: hint.text
-      fontFamily: root.fontFamily
+      cursorShape: Qt.PointingHandCursor
+      onClicked: nav.activated()
     }
   }
 
-  component SliderBlock: Column {
-    id: sliderBlock
-    property string title: ""
-    property string subtitle: ""
-    property string info: ""
+  // Desk page device line: the way into a device's settings.
+  component DeviceRow: Item {
+    id: deviceRow
+    property var item: null
+    signal activated()
+    readonly property int battery: Model.batteryPercent(item)
+    width: parent ? parent.width : implicitWidth
+    implicitHeight: Style.space(46)
+    activeFocusOnTab: true
+    Keys.onReturnPressed: deviceRow.activated()
+    Keys.onEnterPressed: deviceRow.activated()
+    Keys.onSpacePressed: deviceRow.activated()
+    Rectangle {
+      anchors.fill: parent
+      anchors.leftMargin: -Style.space(8)
+      anchors.rightMargin: -Style.space(8)
+      radius: Style.cornerRadius
+      color: deviceRow.activeFocus || rowMouse.containsMouse ? Style.hoverFillFor(root.foreground, root.accent) : "transparent"
+      Behavior on color { ColorAnimation { duration: Style.duration(100) } }
+    }
+    Row {
+      anchors.verticalCenter: parent.verticalCenter
+      width: parent.width
+      spacing: Style.space(12)
+      opacity: deviceRow.item && deviceRow.item.online === false ? 0.55 : 1
+      Text {
+        width: Style.space(20)
+        anchors.verticalCenter: parent.verticalCenter
+        text: Model.kindIcon(deviceRow.item)
+        textFormat: Text.PlainText
+        color: root.accent
+        font.family: root.fontFamily
+        font.pixelSize: Style.font.subtitle
+      }
+      Column {
+        width: parent.width - Style.space(20) - meterBox.width - chevron.width - parent.spacing * 3
+        anchors.verticalCenter: parent.verticalCenter
+        spacing: Style.space(2)
+        Text {
+          width: parent.width
+          text: root.plainName(deviceRow.item, "Logitech device")
+          textFormat: Text.PlainText
+          color: root.foreground
+          font.family: root.fontFamily
+          font.pixelSize: Style.font.body
+          font.bold: true
+          elide: Text.ElideRight
+        }
+        Text {
+          width: parent.width
+          text: root.deviceSummary(deviceRow.item)
+          textFormat: Text.PlainText
+          color: root.dim
+          font.family: root.fontFamily
+          font.pixelSize: Style.font.caption
+          elide: Text.ElideRight
+        }
+      }
+      Item {
+        id: meterBox
+        width: Style.space(150)
+        height: parent.height
+        MxMeter {
+          anchors.right: parent.right
+          anchors.verticalCenter: parent.verticalCenter
+          value: deviceRow.battery / 100
+          suffix: deviceRow.battery + "%"
+          warn: Model.batteryLow(deviceRow.item)
+        }
+      }
+      Text {
+        id: chevron
+        anchors.verticalCenter: parent.verticalCenter
+        text: "›"
+        textFormat: Text.PlainText
+        color: root.dim
+        font.family: root.fontFamily
+        font.pixelSize: Style.font.subtitle
+      }
+    }
+    MouseArea {
+      id: rowMouse
+      anchors.fill: parent
+      hoverEnabled: true
+      cursorShape: Qt.PointingHandCursor
+      onClicked: deviceRow.activated()
+    }
+  }
+
+  component Disclosure: Button {
+    property bool open: false
+    iconText: "󰅂"
+    iconRotation: open ? 90 : 0
+    leftAlign: true
+    focusable: true
+    horizontalPadding: Style.space(4)
+    Behavior on iconRotation { NumberAnimation { duration: Style.duration(120); easing.type: Easing.OutCubic } }
+  }
+
+  // A device toggle setting as a whole-row switch with inline help.
+  component SettingToggle: MxField {
+    property var setting: null
+    property string fallbackHelp: ""
+    switchable: true
+    help: Model.helpForSetting(setting, fallbackHelp)
+    checked: setting ? Model.boolValue(setting) : false
+    onToggled: root.writeToggle(setting)
+  }
+
+  // A device range setting. Writes once, on release; the page wheel never
+  // reaches the slider.
+  component SettingSlider: MxField {
+    id: sliderField
     property var setting: null
     property var formatValue: null
     property var settingKey: undefined
-    property string liveSubtitle: ""
     readonly property var bounds: Model.sliderBounds(setting)
-    function displayFor(value) {
-      if (sliderBlock.formatValue) return sliderBlock.formatValue(value)
-      return String(Math.round(value))
+    function displayFor(v) {
+      return sliderField.formatValue ? sliderField.formatValue(v) : String(Math.round(v))
     }
-    spacing: Style.space(4)
-    Row {
-      width: parent.width
-      spacing: Style.space(8)
-      Text {
-        text: sliderBlock.title
-        textFormat: Text.PlainText
-        color: root.foreground
-        font.family: root.fontFamily
-        font.pixelSize: Style.font.body
-        font.bold: true
-        anchors.verticalCenter: parent.verticalCenter
-      }
-      InfoHint {
-        anchors.verticalCenter: parent.verticalCenter
-        text: sliderBlock.info
-      }
-      Item { width: Math.max(0, 1); height: 1 }
-      Text {
-        text: sliderBlock.liveSubtitle !== "" ? sliderBlock.liveSubtitle : sliderBlock.subtitle
-        color: root.dim
-        font.family: root.fontFamily
-        font.pixelSize: Style.font.body
-        anchors.verticalCenter: parent.verticalCenter
-      }
-    }
+    value: displayFor(Model.snapToChoices(setting, blockSlider.liveValue))
     Item {
       width: parent.width
-      implicitHeight: blockSlider.implicitHeight
-    PanelSlider {
-      id: blockSlider
-      anchors.left: parent.left
-      anchors.right: parent.right
-      bar: root.bar
-      minimum: sliderBlock.bounds.min
-      maximum: sliderBlock.bounds.max
-      step: sliderBlock.bounds.step
-      integer: true
-      value: sliderBlock.setting ? Model.numericValue(sliderBlock.setting, sliderBlock.bounds.min) : sliderBlock.bounds.min
-      onMoved: function(next) {
-        sliderBlock.liveSubtitle = sliderBlock.displayFor(Model.snapToChoices(sliderBlock.setting, next))
+      height: blockSlider.implicitHeight
+      PanelSlider {
+        id: blockSlider
+        anchors.left: parent.left
+        anchors.right: parent.right
+        bar: root.bar
+        minimum: sliderField.bounds.min
+        maximum: sliderField.bounds.max
+        step: sliderField.bounds.step
+        integer: true
+        value: sliderField.setting ? Model.numericValue(sliderField.setting, sliderField.bounds.min) : sliderField.bounds.min
+        onReleased: function(next) {
+          if (sliderField.setting) root.writeSetting(sliderField.setting, Model.snapToChoices(sliderField.setting, next), sliderField.settingKey)
+        }
       }
-      onReleased: function(next) {
-        sliderBlock.liveSubtitle = ""
-        if (sliderBlock.setting) root.writeSetting(sliderBlock.setting, Model.snapToChoices(sliderBlock.setting, next), sliderBlock.settingKey)
-      }
-    }
-    // PanelSlider takes every wheel event and writes the device on each
-    // tick; scroll the page instead.
-    WheelGuard { anchors.fill: parent; target: flick }
+      WheelGuard { anchors.fill: parent; target: flick }
     }
   }
 
-  component MapRow: Row {
+  // A device choice setting as a dropdown that stays bound to the device.
+  component SettingChoice: MxField {
+    id: choiceField
+    property var setting: null
+    label: setting ? String(setting.label || setting.name).toLowerCase() : ""
+    help: Model.helpForSetting(setting, "")
+    Item {
+      width: parent.width
+      height: choiceDrop.implicitHeight
+      Dropdown {
+        id: choiceDrop
+        function saved() { return choiceField.setting ? Model.choiceId(choiceField.setting) : "" }
+        width: parent.width
+        showLabel: false
+        value: saved()
+        options: choiceField.setting ? Model.choiceOptions(choiceField.setting) : []
+        foreground: root.foreground
+        fontFamily: root.fontFamily
+        onChanged: function(next) {
+          if (choiceField.setting) root.writeSetting(choiceField.setting, next)
+          value = Qt.binding(saved)
+        }
+        onPopupOpenChanged: root.dropdownOpen = popupOpen
+        Component.onDestruction: if (popupOpen) root.dropdownOpen = false
+      }
+      WheelGuard { anchors.fill: parent; target: flick }
+    }
+  }
+
+  component MapRow: Item {
+    id: mapRow
     property var row: ({})
     property var setting: null
     property string label: row && row.label ? row.label : "Button"
-    spacing: Style.space(8)
+    implicitHeight: mapDrop.implicitHeight
     Dropdown {
+      id: mapDrop
+      function saved() { return root.rowValue(mapRow.row) }
       width: parent.width
-      label: parent.label
-      value: root.rowValue(row)
-      options: root.rowOptions(row)
+      label: mapRow.label
+      value: saved()
+      options: root.rowOptions(mapRow.row)
       foreground: root.foreground
       fontFamily: root.fontFamily
-      onChanged: function(value) { if (setting) root.writeSetting(setting, value, row.key) }
+      onChanged: function(next) {
+        if (mapRow.setting) root.writeSetting(mapRow.setting, next, mapRow.row.key)
+        value = Qt.binding(saved)
+      }
       onPopupOpenChanged: root.dropdownOpen = popupOpen
       Component.onDestruction: if (popupOpen) root.dropdownOpen = false
     }
-  }
-
-  component ExtraChoice: Dropdown {
-    property var setting: null
-    width: parent ? parent.width : implicitWidth
-    label: setting ? setting.label : ""
-    value: setting ? Model.choiceId(setting) : ""
-    options: setting ? Model.choiceOptions(setting) : []
-    foreground: root.foreground
-    fontFamily: root.fontFamily
-    onChanged: function(value) { if (setting) root.writeSetting(setting, value) }
-    onPopupOpenChanged: root.dropdownOpen = popupOpen
+    WheelGuard { anchors.fill: parent; target: flick }
   }
 
   component ExtraBlock: Column {
     id: extraBlock
     property var setting: null
+    readonly property string kind: setting ? String(setting.kind) : ""
+    readonly property string title: setting ? String(setting.label || setting.name).toLowerCase() : ""
     spacing: Style.space(10)
-    Text {
-      visible: extraBlock.setting && (extraBlock.setting.kind === "map_choice" || extraBlock.setting.kind === "multiple_toggle")
-      width: parent.width
-      text: extraBlock.setting ? extraBlock.setting.label || extraBlock.setting.name : ""
-      textFormat: Text.PlainText
-      color: root.dim
-      font.family: root.fontFamily
-      font.pixelSize: Style.font.caption
-      wrapMode: Text.WordWrap
+    SettingToggle {
+      visible: extraBlock.kind === "toggle"
+      label: extraBlock.title
+      setting: extraBlock.kind === "toggle" ? extraBlock.setting : null
     }
-    HintedToggle {
-      visible: extraBlock.setting && extraBlock.setting.kind === "toggle"
-      width: parent.width
-      label: extraBlock.setting ? extraBlock.setting.label : ""
-      info: Model.helpForSetting(extraBlock.setting, "")
-      checked: extraBlock.setting ? Model.boolValue(extraBlock.setting) : false
-      onClicked: root.writeToggle(extraBlock.setting)
+    SettingSlider {
+      visible: extraBlock.kind === "range"
+      label: extraBlock.title
+      help: Model.helpForSetting(extraBlock.setting, "")
+      setting: extraBlock.kind === "range" ? extraBlock.setting : null
     }
-    SliderBlock {
-      visible: extraBlock.setting && extraBlock.setting.kind === "range"
-      width: parent.width
-      title: extraBlock.setting ? extraBlock.setting.label : ""
-      subtitle: extraBlock.setting ? String(Math.round(Model.numericValue(extraBlock.setting, 0))) : ""
-      info: Model.helpForSetting(extraBlock.setting, "")
-      setting: extraBlock.setting
+    SettingChoice {
+      visible: extraBlock.kind === "choice"
+      setting: extraBlock.kind === "choice" ? extraBlock.setting : null
     }
-    ExtraChoice {
-      visible: extraBlock.setting && extraBlock.setting.kind === "choice"
-      width: parent.width
-      setting: extraBlock.setting
-    }
-    Repeater {
-      model: extraBlock.setting && (extraBlock.setting.kind === "map_choice" || extraBlock.setting.kind === "multiple_toggle") ? Model.keyRows(extraBlock.setting) : []
+    MxField {
+      visible: extraBlock.kind === "map_choice" || extraBlock.kind === "multiple_toggle"
+      stacked: true
+      label: extraBlock.title
+      help: Model.helpForSetting(extraBlock.setting, "")
       Column {
-        required property var modelData
         width: parent.width
-        MapRow {
-          visible: modelData.kind === "choice"
-          width: parent.width
-          row: modelData
-          setting: extraBlock.setting
-        }
-        HintedToggle {
-          visible: modelData.kind === "toggle"
-          width: parent.width
-          label: modelData.label || modelData.key
-          checked: !!modelData.value
-          onClicked: root.writeSetting(extraBlock.setting, !modelData.value, modelData.key)
-        }
-        SliderBlock {
-          visible: modelData.kind === "range"
-          width: parent.width
-          title: modelData.label || modelData.key
-          subtitle: String(modelData.value)
-          setting: Object.assign({}, modelData, { name: extraBlock.setting.name })
-          settingKey: modelData.key
+        spacing: Style.space(10)
+        Repeater {
+          model: extraBlock.kind === "map_choice" || extraBlock.kind === "multiple_toggle" ? Model.keyRows(extraBlock.setting) : []
+          Column {
+            required property var modelData
+            width: parent.width
+            MapRow {
+              visible: modelData.kind === "choice"
+              width: parent.width
+              row: modelData
+              setting: extraBlock.setting
+            }
+            MxField {
+              visible: modelData.kind === "toggle"
+              switchable: true
+              label: modelData.label || modelData.key
+              checked: !!modelData.value
+              onToggled: root.writeSetting(extraBlock.setting, !modelData.value, modelData.key)
+            }
+            SettingSlider {
+              visible: modelData.kind === "range"
+              label: modelData.label || modelData.key
+              setting: modelData.kind === "range" ? Object.assign({}, modelData, { name: extraBlock.setting.name }) : null
+              settingKey: modelData.key
+            }
+          }
         }
       }
     }
