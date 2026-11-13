@@ -226,11 +226,16 @@ def is_receiver_name(name: str, product: str) -> bool:
     return any(token in lower for token in ("unifying receiver", "bolt receiver", "nano receiver", "lightspeed receiver", "usb receiver"))
 
 
-def hidraw_topology() -> tuple[str, ...]:
-    items = []
-    root = Path("/sys/class/hidraw")
+def logitech_hidraw(root: Path | None = None) -> list[dict]:
+    """Logitech hidraw nodes with the kernel HID instance behind each one.
+
+    The instance (e.g. ``0005:046D:B034.000C``) changes on every reconnect,
+    even when the node keeps the same ``hidrawN`` name.
+    """
+    root = root or Path("/sys/class/hidraw")
+    nodes = []
     if not root.is_dir():
-        return tuple()
+        return nodes
     for entry in sorted(root.glob("hidraw*")):
         try:
             text = (entry / "device" / "uevent").read_text(encoding="utf-8", errors="replace")
@@ -239,8 +244,23 @@ def hidraw_topology() -> tuple[str, ...]:
         vendor, product = hid_id_from_uevent(text)
         if vendor != "046D":
             continue
-        items.append(f"{entry.name}:{product}:{hid_field(text, 'HID_UNIQ')}:{hid_field(text, 'HID_NAME')}")
-    return tuple(items)
+        try:
+            instance = (entry / "device").resolve().name
+        except OSError:
+            instance = ""
+        nodes.append({"path": f"/dev/{entry.name}", "name": entry.name, "instance": instance,
+                      "product": product, "uniq": hid_field(text, "HID_UNIQ"), "hid_name": hid_field(text, "HID_NAME")})
+    return nodes
+
+
+def hidraw_topology(nodes: list[dict] | None = None) -> tuple[str, ...]:
+    nodes = logitech_hidraw() if nodes is None else nodes
+    return tuple(f"{n['name']}:{n['instance']}:{n['product']}:{n['uniq']}:{n['hid_name']}" for n in nodes)
+
+
+def hidraw_instances(nodes: list[dict] | None = None) -> dict[str, str]:
+    nodes = logitech_hidraw() if nodes is None else nodes
+    return {n["path"]: n["instance"] for n in nodes}
 
 
 def scan_hidraw() -> tuple[list[dict], list[dict]]:
@@ -1767,8 +1787,10 @@ def switch_group(mods, opened, cmd):
     except (OSError, ValueError):
         snapshot = {}
     hosts = {str(d.get("id")): d.get("hosts", []) for d in snapshot.get("devices", [])}
+    # Preflight with a live ping, not Solaar's cached online flag: a handle
+    # left over from before a reconnect looks online but reaches nothing.
     work = mxswitch.prepare(config, list(iter_devices(opened)), device_id,
-                            device_is_online, lambda d: switch_setting(mods, d),
+                            switch_device_present, lambda d: switch_setting(mods, d),
                             cmd.get("target"), source, lambda d: hosts.get(device_id(d), []))
     result = mxswitch.execute(work, present=switch_device_present)
     write_bytes(profiles_dir() / "switch-result.json", (json.dumps(result) + "\n").encode())
@@ -1950,12 +1972,18 @@ def _read_cmds(paths: Path) -> list[dict]:
     return cmds
 
 
-def prune_dead(opened) -> list:
-    """Drop handles whose hidraw node is gone so they stop leaking fds."""
+def prune_dead(opened, opened_instances: dict | None = None, current_instances: dict | None = None) -> list:
+    """Drop handles whose hidraw node is gone or was replaced by a reconnect.
+
+    A device that reconnects can reuse its ``hidrawN`` name; the old handle
+    then points at a dead node while the path still exists.
+    """
     kept = []
     for handle in opened:
         path = getattr(handle, "path", None)
-        if path and str(path).startswith("/dev/") and not os.path.exists(path):
+        old = (opened_instances or {}).get(path)
+        replaced = bool(old and current_instances is not None and current_instances.get(path) != old)
+        if path and str(path).startswith("/dev/") and (replaced or not os.path.exists(path)):
             try:
                 handle.close()
             except Exception:
@@ -1963,6 +1991,27 @@ def prune_dead(opened) -> list:
             continue
         kept.append(handle)
     return kept
+
+
+REOPEN_RETRY_DELAYS = (1.0, 2.0, 4.0, 8.0, 15.0, 30.0)
+
+
+def reopen_retry_delay(attempt: int) -> float | None:
+    """Backoff for reopening devices that are listed but could not be opened.
+
+    Right after a reconnect the node can exist before udev grants the user
+    access to it; a single failed open must not leave the device unmanaged.
+    """
+    return REOPEN_RETRY_DELAYS[attempt] if 0 <= attempt < len(REOPEN_RETRY_DELAYS) else None
+
+
+def unopened_paths(mods, opened) -> set[str]:
+    have = {getattr(handle, "path", None) for handle in opened}
+    try:
+        listed = {getattr(info, "path", None) for info in mods["base"].receivers_and_devices()}
+    except Exception:
+        return set()
+    return {path for path in listed if path and path not in have}
 
 
 def plan_cycle(cmds: list[dict], topology_changed: bool) -> dict:
@@ -2075,7 +2124,8 @@ def serve_command() -> int:
         return changed
 
     hid_devices, adapters = scan_hidraw_with_battery()
-    topology = hidraw_topology()
+    nodes = logitech_hidraw()
+    topology = hidraw_topology(nodes)
     starting = discover_payload()
     starting["serving"] = True
     starting["progress"] = progress_payload(0, max(len(hid_devices), 1), "Starting", "open")
@@ -2106,6 +2156,20 @@ def serve_command() -> int:
     starting["progress"] = progress_payload(0, max(len(hid_devices), 1), "Opening devices", "open")
     publish(starting)
     opened, permission_error = open_devices(mods)
+    opened_instances = hidraw_instances(nodes)
+    reopen_attempt = 0
+    reopen_due = None
+
+    def schedule_reopen() -> None:
+        nonlocal reopen_attempt, reopen_due
+        if not unopened_paths(mods, opened):
+            reopen_attempt, reopen_due = 0, None
+            return
+        delay = reopen_retry_delay(reopen_attempt)
+        reopen_due = time.monotonic() + delay if delay is not None else None
+        reopen_attempt += 1
+
+    schedule_reopen()
     from mxactions import ActionRuntime
     from mxpointer import PointerRuntime
     actions = ActionRuntime(mods["base"], device_id)
@@ -2139,9 +2203,12 @@ def serve_command() -> int:
             cmds = _read_cmds(paths)
             if not cmds:
                 event_fd = pointer.event_fd()
+                timeout = actions.wait_timeout(idle_timeout)
+                if reopen_due is not None:
+                    timeout = max(0.0, min(timeout, reopen_due - time.monotonic()))
                 wait_for_event(
                     [runtime_fd, hid_fd, actions.wakeup.reader, event_fd, follower.fd],
-                    actions.wait_timeout(idle_timeout),
+                    timeout,
                     keep=tuple(fd for fd in (event_fd, follower.fd) if fd is not None),
                 )
                 cmds = _read_cmds(paths)
@@ -2150,8 +2217,12 @@ def serve_command() -> int:
                 cmds.insert(0, {"op": "switch-group", "target": target, "source": switch_config()["keyboard"]})
             # A compositor config reload drops runtime device overrides.
             reloaded = pointer.poll()
-            next_topology = hidraw_topology()
-            topology_changed = next_topology != topology
+            next_nodes = logitech_hidraw()
+            next_topology = hidraw_topology(next_nodes)
+            retry_due = reopen_due is not None and time.monotonic() >= reopen_due
+            if next_topology != topology:
+                reopen_attempt = 0  # a new hardware event restarts the backoff
+            topology_changed = next_topology != topology or retry_due
             if not cmds and not topology_changed:
                 # Worker failures restore input on the command-handle owner
                 # immediately; only failed sessions retry, with backoff.
@@ -2179,8 +2250,12 @@ def serve_command() -> int:
             plan = plan_cycle(cmds, topology_changed)
             try:
                 if plan["reopen"]:
-                    opened = prune_dead(opened)
+                    current_instances = hidraw_instances(next_nodes)
+                    opened = prune_dead(opened, opened_instances, current_instances)
                     opened, permission_error = add_new_devices(mods, opened)
+                    opened_instances = {path: inst for path, inst in current_instances.items()
+                                        if path in {getattr(h, "path", None) for h in opened}}
+                    schedule_reopen()
                 for cmd in cmds:
                     try:
                         if cmd.get("op") in ("action-save", "action-delete"):

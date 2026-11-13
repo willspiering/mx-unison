@@ -6,6 +6,8 @@
 - Added a phased plan for a leaner, possibly Rust-based helper (`docs/rust-plan.md`).
 - Physical Easy-Switch following now works on keyboards with CHANGE_HOST v1 whose Easy-Switch keys support HID++ analytics key reporting. Reporting is enabled for those three keys only, re-enabled when the keyboard reconnects and cleared when following stops. Hardware validation is pending.
 - Group switching now confirms that each device actually left after its CHANGE_HOST command, resends once if it did not, and stops before the keyboard if a device stays. Solaar sends this command without a reply, so its success result alone proved nothing.
+- Fixed devices that reconnect (wake from sleep, return from another host) being left unmanaged. Reconnects are detected by kernel HID instance even when the `hidrawN` name is reused, replaced handles are closed, and devices that fail to open right after a reconnect (before udev grants access) are retried with backoff.
+- Group switch preflight pings every member instead of trusting a cached online flag.
 - Replaced device-like identifiers in test fixtures with synthetic values.
 
 ## 0.1.0 — initial MX Unison baseline
