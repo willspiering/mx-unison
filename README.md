@@ -9,7 +9,7 @@ MX Unison is an Omarchy shell plugin that does two jobs:
 
 It runs inside Omarchy's existing Quickshell bar, talks to devices locally over HID++ through [Solaar](https://github.com/pwr-Solaar/Solaar)'s library, and has no cloud account, telemetry, AI features or network access.
 
-> **Status: early development (0.1.0).** Device settings work on the hardware they have been tried on. Coordinated switching via the plugin's shortcut has worked in one real setup (MX Master 3S over Bluetooth plus MX Mechanical Mini over Bolt) but has not been tested widely. Physical Easy-Switch following is experimental. This is not full Logi Options+ parity. See [Limitations](#limitations).
+> **Status: early development (0.1.0).** Device settings work on the hardware they have been tried on. In one real setup (MX Master 3S over Bluetooth plus MX Mechanical Mini over Bolt), switching the group with the shortcut and with the keyboard's own Easy-Switch key both worked, outbound. Neither has been tested widely, and physical following is still experimental. This is not full Logi Options+ parity. See [Limitations](#limitations).
 
 ## Contents
 
@@ -185,9 +185,9 @@ Limits:
 - **This works in one direction only, from this computer outward.** When you press an Easy-Switch key on another computer, this computer can't see the press, and the mouse is no longer connected here to command. To switch back with one key press, the other computer needs its own switching software. Otherwise, press the mouse's own channel button. See [Using several computers](#using-several-computers).
 - The keyboard has already started its own switch; the group mapping decides where the other devices go. Pressing the key for the channel you are already on does nothing.
 - Key reporting is reset when the keyboard reconnects, so the helper turns it back on when the keyboard returns.
-- Events can be missed during startup, reconnection, sleep or a slow HID++ request. The keyboard may also drop its link before the report arrives; that has not yet been measured on real hardware.
+- Events can be missed during startup, reconnection, sleep or a slow HID++ request. On the tested keyboard the report arrived before it dropped its link, and the mouse switched within the same second; other models may differ.
 - It is not Logitech's persistent cookie-based device linking.
-- It has synthetic test coverage only. Test every destination before relying on it. It is off by default.
+- Hardware-tested outbound with an MX Mechanical Mini (CHANGE_HOST v1, Bolt, key-reporting mode) and an MX Master 3S (Bluetooth). The CHANGE_HOST v2 mode has synthetic test coverage only. Test every destination before relying on it. It is off by default.
 
 ### Using several computers
 
@@ -228,7 +228,7 @@ Preferences and snapshots can contain device serial numbers, Bluetooth addresses
 
 ## Limitations
 
-- **Hardware validation is incomplete.** Discovery, feature loading, the settings window and one outbound shortcut-triggered group switch have worked on real devices. Physical following has not been tested end-to-end. Synthetic tests do not prove compatibility with a given model, firmware or transport.
+- **Hardware validation is incomplete.** Discovery, feature loading, the settings window, an outbound shortcut switch and outbound physical following (key-reporting mode) have worked on one MX Master 3S + MX Mechanical Mini setup. The return direction, partial failures and CHANGE_HOST v2 following are untested on hardware. Synthetic tests do not prove compatibility with a given model, firmware or transport.
 - **Switching is not atomic.** See [What happens when you switch](#what-happens-when-you-switch).
 - **Profiles** have global names. Filtering by device kind does not prove cross-model compatibility, and settings are applied in sequence without rollback.
 - **Discovery** mainly targets MX-related device names. Receiver support is broader than proven peripheral support.

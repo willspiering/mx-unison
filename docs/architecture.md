@@ -28,7 +28,7 @@ Physical following uses one of two signals. With CHANGE_HOST v2 it reads the hos
 
 ## Current validation limits
 
-Automated checks cover synthetic protocol events, validation and failure paths. A development smoke test confirmed discovery, device feature loading and rendering of the settings window with real mouse/keyboard hardware. A maintainer confirmed one outbound coordinated switch through the keyboard shortcut, with an MX Master 3S (Bluetooth) and an MX Mechanical Mini (Bolt). The return direction, partial failures and both physical-follow modes have not been tested end-to-end on hardware. Do not infer universal compatibility from these checks.
+Automated checks cover synthetic protocol events, validation and failure paths. A development smoke test confirmed discovery, device feature loading and rendering of the settings window with real mouse/keyboard hardware. A maintainer confirmed one outbound coordinated switch through the keyboard shortcut, with an MX Master 3S (Bluetooth) and an MX Mechanical Mini (Bolt). Outbound physical following in key-reporting mode also worked with that pair: the keyboard's report arrived before it left and the mouse switched on the first command. The return direction, partial failures and CHANGE_HOST v2 following have not been tested on hardware. Do not infer universal compatibility from these checks.
 
 Local profiles retain inherited limitations: names are global, kind-based UI filtering does not prove cross-model compatibility, and settings are applied sequentially without rollback. Some inherited interface text remains English. Discovery filters primarily target MX-related device names; supported receiver enumeration is broader than proven peripheral support.
 
