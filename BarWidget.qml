@@ -137,7 +137,7 @@ BarWidget {
     anchors.fill: parent
     bar: root.bar
     tooltipText: {
-      if (!mx.hasDevice) return mx.installed ? "No MX device" : "MX Unison — install Solaar"
+      if (!mx.hasDevice) return !mx.installed ? "MX Unison — install Solaar" : (mx.connecting ? "Connecting to your devices…" : "No devices connected here")
       var name = Model.plainHidText(mx.selectedDevice && mx.selectedDevice.name ? mx.selectedDevice.name : "MX")
       var link = Model.connectionLabel(mx.selectedDevice)
       var battery = mx.batteryPercent >= 0 ? (" · " + mx.batteryPercent + "%") : ""

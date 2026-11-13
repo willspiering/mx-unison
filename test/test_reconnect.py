@@ -54,10 +54,11 @@ class Reconnect(unittest.TestCase):
             self.assertEqual(kept, [])
             self.assertEqual(closed, [True])
 
-    def test_reopen_backoff_is_bounded(self):
-        delays = [mxctl.reopen_retry_delay(i) for i in range(8)]
-        self.assertEqual(delays[:6], [1.0, 2.0, 4.0, 8.0, 15.0, 30.0])
-        self.assertEqual(delays[6:], [None, None])
+    def test_reopen_backoff_starts_fast_and_caps(self):
+        delays = [mxctl.reopen_retry_delay(i) for i in range(10)]
+        self.assertEqual(delays[:7], [0.5, 1.0, 2.0, 4.0, 8.0, 15.0, 30.0])
+        self.assertEqual(delays[7:], [30.0, 30.0, 30.0])
+        self.assertLess(sum(delays[:mxctl.CONNECTING_ATTEMPTS]), 20)
 
     def test_unopened_paths_lists_devices_that_failed_to_open(self):
         listed = [SimpleNamespace(path="/dev/hidraw2"), SimpleNamespace(path="/dev/hidraw3")]

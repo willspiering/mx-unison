@@ -1264,7 +1264,7 @@ def status_from_described(described, hid_devices, adapters, permission_error, la
     accessible = any(item.get("accessible") for item in devices + adapters) or bool(described)
     message = ""
     if not devices and not adapters:
-        message = "No MX devices found. Plug in a Bolt/Unifying receiver, USB cable, or connect over Bluetooth."
+        message = "No Logitech devices are connected to this computer right now. If they are switched to another computer, switch them back here."
     elif permission_error and not described:
         message = (
             "Found Logitech devices but cannot open them. "
@@ -2112,16 +2112,21 @@ def prune_dead(opened, opened_instances: dict | None = None, current_instances: 
     return kept
 
 
-REOPEN_RETRY_DELAYS = (1.0, 2.0, 4.0, 8.0, 15.0, 30.0)
+REOPEN_RETRY_DELAYS = (0.5, 1.0, 2.0, 4.0, 8.0, 15.0, 30.0)
+# Retries this many times count as "connecting"; after that a persistent
+# failure is reported as a real access problem.
+CONNECTING_ATTEMPTS = 5
 
 
-def reopen_retry_delay(attempt: int) -> float | None:
+def reopen_retry_delay(attempt: int) -> float:
     """Backoff for reopening devices that are listed but could not be opened.
 
     Right after a reconnect the node can exist before udev grants the user
-    access to it; a single failed open must not leave the device unmanaged.
+    access to it; a failed open must not leave the device unmanaged. Retries
+    are cheap (only the missing paths are opened), so they continue at the
+    longest interval for as long as the device stays listed.
     """
-    return REOPEN_RETRY_DELAYS[attempt] if 0 <= attempt < len(REOPEN_RETRY_DELAYS) else None
+    return REOPEN_RETRY_DELAYS[min(max(attempt, 0), len(REOPEN_RETRY_DELAYS) - 1)]
 
 
 def unopened_paths(mods, opened) -> set[str]:
@@ -2205,6 +2210,7 @@ def serve_command() -> int:
     if lock is None:
         return EXIT_PEER_SERVING
     last_text = [""]
+    arrival = {"connecting": False}
     actions = None
     pointer = None
     scroll = None
@@ -2222,6 +2228,7 @@ def serve_command() -> int:
         # ts lets the UI tell a live snapshot from a stale cache left behind
         # by a previous session.
         payload["ts"] = int(time.time())
+        payload["connecting"] = arrival["connecting"]
         payload["scroll"] = scroll_prefs()
         payload["scrollError"] = scroll.error if scroll else ""
         payload["switchConfig"] = switch_config(safe=True)
@@ -2283,10 +2290,13 @@ def serve_command() -> int:
         nonlocal reopen_attempt, reopen_due
         if not unopened_paths(mods, opened):
             reopen_attempt, reopen_due = 0, None
+            arrival["connecting"] = False
             return
-        delay = reopen_retry_delay(reopen_attempt)
-        reopen_due = time.monotonic() + delay if delay is not None else None
+        reopen_due = time.monotonic() + reopen_retry_delay(reopen_attempt)
         reopen_attempt += 1
+        # A device that just arrived is usually opened within a few retries;
+        # until then this is "connecting", not an access problem.
+        arrival["connecting"] = reopen_attempt <= CONNECTING_ATTEMPTS
 
     schedule_reopen()
     from mxactions import ActionRuntime
@@ -2341,7 +2351,22 @@ def serve_command() -> int:
             retry_due = reopen_due is not None and time.monotonic() >= reopen_due
             if next_topology != topology:
                 reopen_attempt = 0  # a new hardware event restarts the backoff
-            topology_changed = next_topology != topology or retry_due
+            topology_changed = next_topology != topology
+            if retry_due and not topology_changed:
+                # Cheap retry: open only what is missing; a full re-read
+                # happens only once something new actually opened.
+                count = len(opened)
+                try:
+                    opened, permission_error = add_new_devices(mods, opened)
+                except Exception:
+                    pass
+                if len(opened) > count:
+                    opened_instances.update({p: i for p, i in hidraw_instances(next_nodes).items()
+                                             if p in {getattr(h, "path", None) for h in opened}})
+                    topology_changed = True
+                else:
+                    schedule_reopen()
+                    publish(payload)
             if not cmds and not topology_changed:
                 # Worker failures restore input on the command-handle owner
                 # immediately; only failed sessions retry, with backoff.

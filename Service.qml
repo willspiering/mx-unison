@@ -22,6 +22,8 @@ Item {
 
   property bool installed: false
   property bool accessible: false
+  // Devices are arriving (just switched here) and not opened yet.
+  property bool connecting: false
   property bool refreshing: false
   property bool daemonWanted: false
   property int daemonRetryMs: 1000
@@ -196,6 +198,7 @@ Item {
       pendingWrites = merged.writes
       installed = parsed.installed === true
       accessible = parsed.accessible === true
+      connecting = parsed.connecting === true
       devices = next
       adapters = parsed.adapters || []
       hasHidppSnapshot = nextHasHidpp && statusIsFresh(parsed)
@@ -210,8 +213,9 @@ Item {
       lastError = parsed.ok ? String(parsed.lastError || "") : parsed.message
       var name = (picked && picked.name) ? String(picked.name) : "MX"
       statusText = !installed ? "Solaar not installed"
+        : (connecting ? "Connecting to your devices"
         : (!accessible ? "Waiting for device access"
-        : (!(picked && picked.id) ? "No MX device" : name))
+        : (!(picked && picked.id) ? "No devices connected here" : name)))
     } catch (e) {
       lastError = String(e)
       console.warn("mx applyStatus failed:", e)

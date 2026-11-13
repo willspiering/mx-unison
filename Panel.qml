@@ -74,7 +74,8 @@ Panel {
   readonly property string heroMeta: {
     if (!mx) return "Checking"
     if (!mx.installed) return "Needs Solaar"
-    if (!device) return mx.message || "No device"
+    if (mx.connecting && !canWrite) return "Connecting…"
+    if (!device) return "No devices connected here"
     var parts = []
     var battery = Model.batteryLabel(device)
     if (battery) parts.push(battery)
@@ -380,7 +381,7 @@ Panel {
           }
 
           Column {
-            visible: !!(mx && mx.installed && !mx.accessible)
+            visible: !!(mx && mx.installed && !mx.accessible && !mx.connecting)
             width: parent.width
             spacing: Style.space(8)
 
@@ -622,13 +623,15 @@ Panel {
           }
 
           Column {
-            visible: !!(mx && mx.installed && mx.accessible && !root.canWrite)
+            visible: !!(mx && mx.installed && (mx.accessible || mx.connecting) && !root.canWrite)
             width: parent.width
             spacing: Style.space(8)
 
             Text {
               width: parent.width
               text: {
+                if (mx && mx.connecting)
+                  return "Connecting to your devices…"
                 if (!mx || !mx.daemonWanted)
                   return "Click the bar icon again if settings do not appear."
                 if (mx.lastError)

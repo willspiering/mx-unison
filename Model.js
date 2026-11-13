@@ -80,6 +80,7 @@ function parseStatus(raw) {
       ok: data.ok !== false,
       installed: data.installed === true,
       accessible: data.accessible === true,
+      connecting: data.connecting === true,
       serving: data.serving === true,
       ts: isFinite(Number(data.ts)) ? Number(data.ts) : 0,
       message: plainHidText(data.message || ""),

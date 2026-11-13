@@ -391,7 +391,8 @@ Item {
               visible: !root.canWrite
               width: parent.width
               text: !mx.installed ? "Install Solaar to configure your devices: omarchy pkg add solaar"
-                : !device ? "No supported device found. Connect your device, then refresh."
+                : mx.connecting ? "Connecting to your devices…"
+                : !device ? "No Logitech devices are connected to this computer right now. If they are switched to another computer, switch them back here."
                 : device.online === false ? "This device is offline. Wake it or reconnect, then refresh."
                 : !mx.accessible ? "Waiting for device access. After installing Solaar, reconnect your device so its access rules apply."
                 : "Reading settings" + (mx.progressLabel ? (" · " + mx.progressLabel) : "") + " · " + mx.readPercent + "%"
