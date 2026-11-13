@@ -68,7 +68,14 @@ Item {
   readonly property string statusPath: runtimeDir + "/status.json"
   readonly property string cmdPath: runtimeDir + "/cmd.json"
   readonly property int refreshIntervalSec: intSetting("refreshIntervalSec", 15, 10, 3600)
-  readonly property string preferredId: String(setting("selectedDevice", selectedId || ""))
+  // An in-session pick beats the persisted preference (see Model.preferredDeviceId).
+  readonly property string preferredId: {
+    try {
+      return Model.preferredDeviceId(setting("selectedDevice", ""), selectedId, userPicked)
+    } catch (e) {
+      return userPicked && selectedId ? String(selectedId) : String(setting("selectedDevice", selectedId || ""))
+    }
+  }
   readonly property bool busy: discoverProcess.running || cmdProcess.running
   readonly property string helperPath: resolvedHelper()
   readonly property var bluetoothDevices: Bluetooth.devices ? Bluetooth.devices.values : []

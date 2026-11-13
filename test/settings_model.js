@@ -43,4 +43,14 @@ assert.deepEqual(status.pointer, { 'A1B2C3D4': { acceleration: 'mac' } }, 'patch
 assert.equal(Model.profileAccelerated({ name: 'Work', pointer: { acceleration: 'mac' } }), true)
 assert.equal(Model.profileAccelerated({ name: 'Old' }), false)
 assert.ok(Model.pointerAccelHelp().indexOf('macOS') !== -1)
+// Selection: a pick made this session beats the persisted preference, so a
+// keyboard saved by the popup cannot pin the settings window to itself.
+assert.equal(Model.preferredDeviceId('keys', 'mouse', true), 'mouse')
+assert.equal(Model.preferredDeviceId('keys', 'mouse', false), 'keys')
+assert.equal(Model.preferredDeviceId('', 'mouse', false), 'mouse')
+assert.equal(Model.preferredDeviceId(null, '', true), '')
+assert.equal(Model.preferredDeviceId('keys', '', true), 'keys')
+const pickList = [{ id: 'keys', kind: 'keyboard', online: true }, { id: 'mouse', kind: 'mouse', online: true }]
+assert.equal(Model.pickDefaultDevice(pickList, Model.preferredDeviceId('keys', 'mouse', true), true).id, 'mouse')
+assert.equal(Model.pickDefaultDevice(pickList, Model.preferredDeviceId('keys', 'keys', true), true).id, 'keys')
 console.log('Pointer model checks passed')

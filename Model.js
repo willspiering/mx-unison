@@ -199,6 +199,17 @@ function deviceMatches(device, needle) {
   return false
 }
 
+// Which device id to prefer. A device picked during this session (in the
+// popup or the settings window) wins; the persisted bar-entry preference
+// only seeds the choice until then. Letting the persisted value win pinned
+// the selection to whatever the popup last saved.
+function preferredDeviceId(persisted, selectedId, userPicked) {
+  var picked = selectedId === undefined || selectedId === null ? "" : String(selectedId)
+  if (userPicked === true && picked !== "") return picked
+  var saved = persisted === undefined || persisted === null ? "" : String(persisted)
+  return saved !== "" ? saved : picked
+}
+
 function pickDefaultDevice(devices, preferredId, userPicked) {
   var list = Array.isArray(devices) ? devices : []
   if (preferredId) {
@@ -1305,6 +1316,7 @@ if (typeof module !== "undefined") {
     isMouse: isMouse,
     isKeyboard: isKeyboard,
     pickDefaultDevice: pickDefaultDevice,
+    preferredDeviceId: preferredDeviceId,
     batteryPercent: batteryPercent,
     batteryLabel: batteryLabel,
     smartShiftState: smartShiftState,
