@@ -900,6 +900,10 @@ Panel {
         onEntered: sliderBlock.hoveredIn()
         onExited: root.cursorActive = false
       }
+
+      // PanelSlider takes every wheel event and writes the device on each
+      // tick; scroll the popup instead.
+      WheelGuard { anchors.fill: parent; target: panelFlick }
     }
   }
 

@@ -8,16 +8,21 @@ Column {
   required property var mx
   spacing: Style.space(12)
   Translations { id: strings; directory: Qt.resolvedUrl("i18n") }
+  // Every edit is saved immediately. Edits keep the configuration valid
+  // (channel changes swap, removing the follow keyboard turns follow off),
+  // so there is no draft state to save or revert.
   property var draft: ({version: 1, keyboard: "", follow: false, members: {}})
-  property bool dirty: false
   function reset() {
     draft = JSON.parse(JSON.stringify(mx.switchConfig))
-    dirty = false
+  }
+  function commit(next) {
+    draft = next
+    mx.saveSwitchConfig(next)
   }
   Component.onCompleted: reset()
   Connections {
     target: root.mx
-    function onSwitchConfigChanged() { if (!root.dirty) root.reset() }
+    function onSwitchConfigChanged() { root.reset() }
   }
   function updateMember(did, channelIndex, value) {
     var next = JSON.parse(JSON.stringify(draft))
@@ -34,8 +39,7 @@ Column {
       next.members[did][other] = old
       next.members[did][channelIndex] = value
     }
-    draft = next
-    dirty = true
+    commit(next)
   }
   Text {
     text: strings.t("group.title")
@@ -87,32 +91,13 @@ Column {
             }
             ComboBox {
               model: [1, 2, 3]
+              wheelEnabled: false
               currentIndex: member.included ? root.draft.members[member.did][index] : 0
               onActivated: root.updateMember(member.did, index, currentIndex)
             }
           }
         }
       }
-    }
-  }
-  Row {
-    spacing: Style.space(8)
-    Button {
-      text: strings.t("group.save")
-      bordered: true
-      focusable: true
-      enabled: root.dirty && root.mx.installed
-      onClicked: {
-        root.mx.saveSwitchConfig(root.draft)
-        root.dirty = false
-      }
-    }
-    Button {
-      text: strings.t("group.revert")
-      bordered: true
-      focusable: true
-      enabled: root.dirty
-      onClicked: root.reset()
     }
   }
   Row {
@@ -124,7 +109,7 @@ Column {
         text: strings.t("group.switch").arg(I18n.formatNumber(index + 1))
         bordered: true
         focusable: true
-        enabled: !root.dirty && Object.keys(root.mx.switchConfig.members || {}).length > 0 && root.mx.installed
+        enabled: Object.keys(root.mx.switchConfig.members || {}).length > 0 && root.mx.installed
         onClicked: root.mx.switchTogether(index + 1)
       }
     }
@@ -138,8 +123,7 @@ Column {
       var next = JSON.parse(JSON.stringify(root.draft))
       next.follow = checked
       next.keyboard = checked ? String(root.mx.selectedDevice.id) : ""
-      root.draft = next
-      root.dirty = true
+      root.commit(next)
     }
   }
   Text {

@@ -520,6 +520,7 @@ Item {
                 id: scrollSlider
                 width: parent.width
                 from: 0.25; to: 4; stepSize: 0.25
+                wheelEnabled: false
                 value: root.device ? Number(mx.scroll[String(root.device.id)] || 1) : 1
                 onPressedChanged: { if (!pressed) mx.setScrollSpeed(value) }
               }
@@ -1002,8 +1003,13 @@ Item {
         anchors.verticalCenter: parent.verticalCenter
       }
     }
-    PanelSlider {
+    Item {
       width: parent.width
+      implicitHeight: blockSlider.implicitHeight
+    PanelSlider {
+      id: blockSlider
+      anchors.left: parent.left
+      anchors.right: parent.right
       bar: root.bar
       minimum: sliderBlock.bounds.min
       maximum: sliderBlock.bounds.max
@@ -1017,6 +1023,10 @@ Item {
         sliderBlock.liveSubtitle = ""
         if (sliderBlock.setting) root.writeSetting(sliderBlock.setting, Model.snapToChoices(sliderBlock.setting, next), sliderBlock.settingKey)
       }
+    }
+    // PanelSlider takes every wheel event and writes the device on each
+    // tick; scroll the page instead.
+    WheelGuard { anchors.fill: parent; target: flick }
     }
   }
 
