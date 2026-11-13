@@ -1787,13 +1787,43 @@ def switch_group(mods, opened, cmd):
     except (OSError, ValueError):
         snapshot = {}
     hosts = {str(d.get("id")): d.get("hosts", []) for d in snapshot.get("devices", [])}
-    # Preflight with a live ping, not Solaar's cached online flag: a handle
-    # left over from before a reconnect looks online but reaches nothing.
-    work = mxswitch.prepare(config, list(iter_devices(opened)), device_id,
-                            switch_device_present, lambda d: switch_setting(mods, d),
-                            cmd.get("target"), source, lambda d: hosts.get(device_id(d), []))
-    result = mxswitch.execute(work, present=switch_device_present)
-    write_bytes(profiles_dir() / "switch-result.json", (json.dumps(result) + "\n").encode())
+    entry = {"ts": int(time.time()), "trigger": "follow" if source else "manual",
+             "target": cmd.get("target"), "steps": [], "result": "ok", "error": ""}
+    try:
+        # Preflight with a live ping, not Solaar's cached online flag: a handle
+        # left over from before a reconnect looks online but reaches nothing.
+        work = mxswitch.prepare(config, list(iter_devices(opened)), device_id,
+                                switch_device_present, lambda d: switch_setting(mods, d),
+                                cmd.get("target"), source, lambda d: hosts.get(device_id(d), []))
+        result = mxswitch.execute(work, present=switch_device_present)
+        entry["steps"] = result["steps"]
+        write_bytes(profiles_dir() / "switch-result.json", (json.dumps(result) + "\n").encode())
+    except Exception as exc:
+        entry.update(result="error", error=plain_hid_text(str(exc))[:300], steps=getattr(exc, "steps", []))
+        raise
+    finally:
+        log_switch(entry)
+
+
+SWITCH_LOG_LINES = 50
+
+
+def log_switch(entry: dict) -> None:
+    """Keep the last few switch attempts for diagnosis.
+
+    Stored in the private runtime directory; device kinds and channel numbers
+    only, no identities or host names.
+    """
+    path = runtime_dir() / "switch-log.jsonl"
+    try:
+        lines = path.read_text(encoding="utf-8").splitlines()[-(SWITCH_LOG_LINES - 1):] if path.is_file() else []
+    except OSError:
+        lines = []
+    lines.append(json.dumps(entry, sort_keys=True))
+    try:
+        write_bytes(path, ("\n".join(lines) + "\n").encode())
+    except OSError:
+        pass
 
 
 def apply_cmd(mods, opened, cmd: dict) -> None:
@@ -2241,6 +2271,7 @@ def serve_command() -> int:
                     last_heartbeat = time.monotonic()
                     refresh_batteries(opened, payload, skip=covered)
                     actions.check(list(iter_devices(opened)))
+                    follower.verify()
                     payload["lastError"] = last_error
                     publish(payload)
                 elif sysfs_changed or action_changed or pointer_changed:

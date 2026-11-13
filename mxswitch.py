@@ -101,37 +101,59 @@ def _stayed(dev, present, sleep):
     return True
 
 
+SWITCH_ATTEMPTS = 3
+
+
+class SwitchError(RuntimeError):
+    """A group switch stopped part-way; ``steps`` records what happened."""
+    def __init__(self, message, steps):
+        super().__init__(message)
+        self.steps = steps
+
+
+def device_kind(dev):
+    kind = str(getattr(dev, "kind", "") or "").lower()
+    return kind if kind in ("mouse", "keyboard", "trackball", "touchpad") else "device"
+
+
 def execute(work, present=None, sleep=time.sleep):
     """Send switch commands in order.
 
     CHANGE_HOST is sent without a reply, so a successful write does not prove
     the device acted on it. With ``present`` (a liveness check), each device
-    must stop answering; otherwise the command is resent once, and if the
-    device still stays the remaining devices are not switched.
+    must stop answering; otherwise the command is resent, and if the device
+    still stays the remaining devices are not switched.
     """
     sent = []
     retried = []
+    steps = []
     for did, dev, setting, channel in work:
+        step = {"kind": device_kind(dev), "channel": channel + 1, "attempts": 0, "outcome": ""}
+        steps.append(step)
         try:
             # Never use cached current-host state to suppress a switch, and
             # never persist an active channel that could switch on reconnect.
-            for attempt in range(2 if present else 1):
+            for attempt in range(SWITCH_ATTEMPTS if present else 1):
+                step["attempts"] = attempt + 1
                 result = setting.write(channel, save=False)
                 if result is None or result is False:
-                    raise RuntimeError("Device rejected the switch command")
+                    raise RuntimeError(f"The {step['kind']} rejected the switch command")
                 if not present or not _stayed(dev, present, sleep):
                     break
                 if attempt == 0:
                     retried.append(did)
             else:
-                raise RuntimeError("A device ignored the switch command and is still connected here; remaining devices were not switched")
+                step["outcome"] = "stayed"
+                raise RuntimeError(f"The {step['kind']} ignored the switch command and is still connected here; remaining devices were not switched")
+            step["outcome"] = "left" if present else "sent"
             sent.append(did)
         except Exception as exc:
-            raise RuntimeError(f"Switch stopped after {len(sent)} command(s); check device channels. {exc}") from exc
+            step["outcome"] = step["outcome"] or "error"
+            raise SwitchError(f"Switch stopped after {len(sent)} command(s). {exc}", steps) from exc
     message = "Switch commands sent; destination connection cannot be verified here"
     if present:
         message = "Devices left this computer; arrival at the destination cannot be verified here"
-    return {"sent": sent, "retried": retried, "message": message, "ts": int(time.time())}
+    return {"sent": sent, "retried": retried, "steps": steps, "message": message, "ts": int(time.time())}
 
 
 # REPROG_CONTROLS_V4 control IDs for the Easy-Switch keys and the flags used to
@@ -143,6 +165,7 @@ GET_CID_REPORTING = 0x20
 ANALYTICS_ON = 0x03   # flags byte 2: analyticsKeyEvt + valid bit
 ANALYTICS_OFF = 0x02  # valid bit only: clear reporting
 REARM_DELAY = 5.0
+VERIFY_EVERY = 300.0  # seconds between heartbeat checks of key reporting
 
 
 def _bits(flags):
@@ -198,6 +221,8 @@ class Follower:
         self.cids = []
         self.current_host = None
         self.rearm_at = None
+        self.away = False
+        self.verified_at = 0.0
         self.error = ""
         self.last_event = None
         self.last_time = 0
@@ -241,6 +266,7 @@ class Follower:
         self.dev = None
         self.cids = []
         self.rearm_at = None
+        self.away = False
 
     def sync(self, config, devices, identity):
         from logitech_receiver.hidpp20_constants import SupportedFeature
@@ -279,6 +305,15 @@ class Follower:
                 raise ValueError("This keyboard cannot report its Easy-Switch keys; use the Switch buttons or a shortcut")
             self.dev, self.cids = dev, cids
             self.mode = "key-report"
+            # Receivers only report a device leaving or returning when
+            # connection notifications are on. Solaar's GUI listener enables
+            # them; without it they are off and re-arming never happens.
+            receiver = getattr(dev, "receiver", None)
+            if receiver is not None and hasattr(receiver, "enable_connection_notifications"):
+                try:
+                    receiver.enable_connection_notifications()
+                except Exception:
+                    pass  # verify() on the heartbeat still recovers reporting
             self._arm()
             self.fd = os.open(path, os.O_RDONLY | os.O_NONBLOCK | os.O_CLOEXEC)
             self.key, self.feature, self.number = token, int(reprog), number
@@ -313,7 +348,10 @@ class Follower:
                 # Receiver link notification: the keyboard came back to this
                 # host. Key reporting is volatile, so re-enable it.
                 if self.mode == "key-report" and raw[0] == 0x10 and raw[2] == 0x41:
-                    if not raw[3] & 0x40:
+                    if raw[3] & 0x40:
+                        self.away = True
+                    else:
+                        self.away = False
                         self.rearm_at = time.monotonic()
                     continue
                 if raw[2] != self.feature:
@@ -327,6 +365,7 @@ class Follower:
                             continue
                         target = self._target(config, channel)
                         if target is not None:
+                            self.away = True  # the keyboard is leaving now
                             return target
                     continue
                 if raw[3] != 0:
@@ -344,5 +383,29 @@ class Follower:
             self.error = str(exc)[:300]
         return None
 
+    def verify(self):
+        """Heartbeat safety net: re-arm if key reporting was reset.
+
+        Skipped while the keyboard is known to be away or a re-arm is already
+        pending. Command thread only.
+        """
+        if self.mode != "key-report" or self.fd is None or self.away or self.rearm_at is not None or not self.cids:
+            return
+        now = time.monotonic()
+        if now - self.verified_at < VERIFY_EVERY:
+            return
+        self.verified_at = now
+        from logitech_receiver.hidpp20_constants import SupportedFeature
+        cid = self.cids[0]
+        try:
+            reply = self.dev.feature_request(SupportedFeature.REPROG_CONTROLS_V4, GET_CID_REPORTING, cid >> 8, cid & 0xFF)
+        except Exception:
+            return
+        if reply is None:
+            return  # no answer: likely asleep or away; the link event re-arms
+        if len(reply) < 6 or not reply[5] & 0x01:
+            self.rearm_at = time.monotonic()
+
     def status(self):
-        return {"listening": self.fd is not None, "mode": self.mode, "error": self.error, "lastKey": self.last_key}
+        return {"listening": self.fd is not None, "mode": self.mode, "error": self.error,
+                "lastKey": self.last_key, "away": self.away, "rearmPending": self.rearm_at is not None}

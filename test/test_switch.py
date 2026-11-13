@@ -107,9 +107,15 @@ class Switching(unittest.TestCase):
         self.assertEqual(result["retried"], ["mouse"])
 
     def test_device_that_stays_keeps_keyboard_here(self):
-        with self.assertRaisesRegex(RuntimeError, "after 0 command.*still connected"):
-            self.run_verified({"mouse": [True] * 6, "keys": [False]})
-        self.assertEqual([d for d, _, _ in self.sent], ["mouse", "mouse"])
+        with self.assertRaisesRegex(mxswitch.SwitchError, "after 0 command.*mouse ignored.*still connected") as ctx:
+            self.run_verified({"mouse": [True] * 9, "keys": [False]})
+        self.assertEqual([d for d, _, _ in self.sent], ["mouse"] * mxswitch.SWITCH_ATTEMPTS)
+        self.assertEqual(ctx.exception.steps, [{"kind": "mouse", "channel": 1, "attempts": 3, "outcome": "stayed"}])
+
+    def test_steps_record_each_device(self):
+        result = self.run_verified({"mouse": [True, True, True, False], "keys": [False]})
+        self.assertEqual([(s["kind"], s["attempts"], s["outcome"]) for s in result["steps"]],
+                         [("mouse", 2, "left"), ("keyboard", 1, "left")])
 
     def test_follow_requires_grouped_source(self):
         self.config.update(follow=True, keyboard='other')
@@ -228,6 +234,45 @@ class KeyReportFollow(unittest.TestCase):
         # Channel 3 is mapped to target 3 for this keyboard.
         with patch("mxswitch.os.read", side_effect=[press(2)]):
             self.assertEqual(follower.poll(self.config), 3)
+
+    def test_arming_enables_receiver_connection_notifications(self):
+        keyboard, follower = _Keyboard(), mxswitch.Follower()
+        calls = []
+        keyboard.receiver = SimpleNamespace(enable_connection_notifications=lambda: calls.append(True))
+        self.sync(follower, keyboard)
+        self.assertEqual(calls, [True])
+        self.assertTrue(follower.status()["listening"])
+
+    def test_link_down_marks_away_and_verify_skips(self):
+        keyboard, follower = _Keyboard(), mxswitch.Follower()
+        self.sync(follower, keyboard)
+        with patch("mxswitch.os.read", side_effect=[bytes([0x10, 2, 0x41, 0x44, 0, 0, 0]), BlockingIOError()]):
+            follower.poll(self.config)
+        self.assertTrue(follower.status()["away"])
+        keyboard.requests.clear()
+        follower.verified_at = 0.0
+        follower.verify()
+        self.assertEqual(keyboard.requests, [])
+
+    def test_verify_rearms_when_reporting_was_reset(self):
+        keyboard, follower = _Keyboard(), mxswitch.Follower()
+        self.sync(follower, keyboard)
+        keyboard.echo = False  # device lost the analytics flag
+        follower.verified_at = 0.0
+        follower.verify()
+        self.assertTrue(follower.status()["rearmPending"])
+        keyboard.echo = True
+        self.sync(follower, keyboard)
+        self.assertFalse(follower.status()["rearmPending"])
+
+    def test_departing_key_press_marks_away(self):
+        follower = mxswitch.Follower()
+        follower.fd, follower.number, follower.feature, follower.mode = 77, 2, 8, "key-report"
+        follower.current_host = 1
+        press = bytes([0x11, 2, 8, 0x20, 0x00, 0xD1, 0x01]) + bytes(13)
+        with patch("mxswitch.os.read", side_effect=[press]):
+            self.assertEqual(follower.poll(self.config), 1)
+        self.assertTrue(follower.away)
 
     def test_reconnect_schedules_rearm(self):
         keyboard, follower = _Keyboard(), mxswitch.Follower()

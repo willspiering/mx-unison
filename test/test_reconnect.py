@@ -65,6 +65,16 @@ class Reconnect(unittest.TestCase):
         self.assertEqual(mxctl.unopened_paths(mods, [SimpleNamespace(path="/dev/hidraw2")]), {"/dev/hidraw3"})
         self.assertEqual(mxctl.unopened_paths(mods, [SimpleNamespace(path=p.path) for p in listed]), set())
 
+    def test_switch_log_is_capped_and_has_no_identities(self):
+        from unittest.mock import patch
+        with tempfile.TemporaryDirectory() as tmp, patch.object(mxctl, "runtime_dir", lambda: Path(tmp)):
+            for i in range(mxctl.SWITCH_LOG_LINES + 5):
+                mxctl.log_switch({"ts": i, "trigger": "manual", "target": 1, "result": "ok",
+                                  "error": "", "steps": [{"kind": "mouse", "channel": 1, "attempts": 1, "outcome": "left"}]})
+            lines = (Path(tmp) / "switch-log.jsonl").read_text().splitlines()
+        self.assertEqual(len(lines), mxctl.SWITCH_LOG_LINES)
+        self.assertIn('"ts": 5', lines[0])
+
 
 if __name__ == "__main__":
     unittest.main()
