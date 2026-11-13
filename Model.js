@@ -1214,13 +1214,59 @@ function deskTargets(config, devices) {
     if (!known) here = false
     targets.push({
       target: t + 1,
+      // label is escaped for rich-text sinks; name is the raw stored name
+      // for plain-text sinks (empty when no member has one).
       label: name ? plainHidText(name) : ("Computer " + (t + 1)),
+      name: name,
       named: !!name,
       here: here,
       available: available
     })
   }
   return targets
+}
+
+function hostKey(name) {
+  return String(name || "").trim().toLowerCase()
+}
+
+// Channel mapping for one device, matched by stored host name: each target
+// gets the device channel named like the computer the other group members
+// use for that target. Targets without a match keep the device's current
+// mapping (or the same channel number) where it is still free. Always
+// returns a permutation of [0, 1, 2], so the result is a valid mapping.
+function matchChannels(config, devices, deviceId) {
+  var did = String(deviceId || "")
+  var members = config && config.members ? config.members : {}
+  var others = {}
+  for (var k in members) if (k !== did) others[k] = members[k]
+  var refs = deskTargets({ keyboard: config && config.keyboard, members: others }, devices)
+  var list = Array.isArray(devices) ? devices : []
+  var dev = null
+  for (var i = 0; i < list.length; i++) if (list[i] && String(list[i].id) === did) dev = list[i]
+  var chans = deviceChannels(dev)
+  var base = Array.isArray(members[did]) && members[did].length === 3 ? members[did] : [0, 1, 2]
+  var out = [-1, -1, -1]
+  var used = [false, false, false]
+  for (var t = 0; t < 3 && refs.length; t++) {
+    var want = hostKey(refs[t].name)
+    if (!want) continue
+    for (var c = 0; c < 3; c++) {
+      if (!used[c] && hostKey(chans[c].name) === want) { out[t] = c; used[c] = true; break }
+    }
+  }
+  var prefs = [base, [0, 1, 2]]
+  for (var p = 0; p < prefs.length; p++) {
+    for (var t2 = 0; t2 < 3; t2++) {
+      var want2 = Number(prefs[p][t2])
+      if (out[t2] < 0 && want2 >= 0 && want2 < 3 && !used[want2]) { out[t2] = want2; used[want2] = true }
+    }
+  }
+  for (var t3 = 0; t3 < 3; t3++) {
+    if (out[t3] >= 0) continue
+    for (var c3 = 0; c3 < 3; c3++) if (!used[c3]) { out[t3] = c3; used[c3] = true; break }
+  }
+  return out
 }
 
 function mergeBluetoothBattery(devices, btDevices) {
@@ -1276,6 +1322,7 @@ if (typeof module !== "undefined") {
     hostOptions: hostOptions,
     deviceChannels: deviceChannels,
     deskTargets: deskTargets,
+    matchChannels: matchChannels,
     plainHidText: plainHidText,
     hidDisplayName: hidDisplayName,
     runtimeDir: runtimeDir,

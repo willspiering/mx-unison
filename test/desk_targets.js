@@ -41,4 +41,35 @@ assert.deepEqual(Model.deskTargets(null, null), [])
 const evil = { id: 'keys', hosts: [{ index: 0, name: '<b>x</b>', current: true }] }
 assert.equal(Model.deskTargets({ keyboard: 'keys', members: { keys: [0, 1, 2] } }, [evil])[0].label, '&lt;b&gt;x&lt;/b&gt;')
 
+// Raw names are kept alongside the escaped label for plain-text sinks.
+assert.equal(Model.deskTargets({ keyboard: 'keys', members: { keys: [0, 1, 2] } }, [evil])[0].name, '<b>x</b>')
+assert.equal(targets[2].name, '')
+
+// Auto-fill: a mouse joining a keyboard-only group gets channels matched by
+// host name, whatever order the mouse stores them in.
+const swapped = { id: 'mouse', kind: 'mouse', hosts: [
+  { index: 0, name: 'Desktop ', paired: true },
+  { index: 1, name: '', paired: false },
+  { index: 2, name: 'laptop', paired: true }
+] }
+const kbOnly = { version: 1, keyboard: 'keys', follow: false, members: { keys: [0, 1, 2] } }
+assert.deepEqual(Model.matchChannels(kbOnly, [keyboard, swapped], 'mouse'), [2, 0, 1])
+// The keyboard's own mapping decides which computer is which target.
+const kbCrossed = { version: 1, keyboard: 'keys', follow: false, members: { keys: [1, 0, 2] } }
+assert.deepEqual(Model.matchChannels(kbCrossed, [keyboard, swapped], 'mouse'), [0, 2, 1])
+// Already a member: names win, unmatched targets keep the existing channel.
+const member = { version: 1, keyboard: 'keys', follow: false, members: { keys: [0, 1, 2], mouse: [0, 1, 2] } }
+assert.deepEqual(Model.matchChannels(member, [keyboard, swapped], 'mouse'), [2, 0, 1])
+// No names anywhere: keep the current mapping, or the identity for a new device.
+const bare = { id: 'bare', hosts: [] }
+const bareGroup = { version: 1, keyboard: '', follow: false, members: { bare: [2, 0, 1] } }
+assert.deepEqual(Model.matchChannels(bareGroup, [bare], 'bare'), [2, 0, 1])
+assert.deepEqual(Model.matchChannels({ members: {} }, [bare], 'bare'), [0, 1, 2])
+assert.deepEqual(Model.matchChannels(null, null, 'missing'), [0, 1, 2])
+// Duplicate names never produce a repeated channel.
+const dup = { id: 'dup', hosts: [{ index: 0, name: 'laptop' }, { index: 1, name: 'laptop' }, { index: 2, name: 'laptop' }] }
+const dupOut = Model.matchChannels(kbOnly, [keyboard, dup], 'dup')
+assert.deepEqual(dupOut.slice().sort(), [0, 1, 2])
+assert.equal(dupOut[0], 0)
+
 console.log('Desk target checks passed')

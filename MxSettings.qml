@@ -111,7 +111,6 @@ Item {
   readonly property var extraSettings: Model.remainingSettings(device, usedSettingNames())
   readonly property var assignmentControls: Model.assignmentControls(remapSetting, divertSetting)
   readonly property var smartState: Model.smartShiftState(smartSetting)
-  readonly property var hostOptions: Model.hostOptions(device)
   readonly property var deviceProfiles: {
     var list = mx.profiles || []
     var kind = device && device.kind ? String(device.kind) : ""
@@ -561,73 +560,9 @@ Item {
               visible: root.section === "hosts"
               width: parent.width
               mx: root.mx
-            }
-
-            SectionCard {
-              visible: root.section === "hosts" && (!!(hostSetting || (device && device.hosts && device.hosts.length)) && root.canWrite)
-              width: parent.width
-              title: "Easy Switch"
-              ButtonGroup {
-                width: parent.width
-                options: root.hostOptions
-                value: hostSetting ? Model.choiceId(hostSetting) : ""
-                foreground: root.foreground
-                accent: root.accent
-                fontFamily: root.fontFamily
-                onChanged: function(value) { if (hostSetting) root.writeSetting(hostSetting, value) }
-              }
-              Text {
-                visible: !!(device && device.hosts && device.hosts.length)
-                width: parent.width
-                text: "Rename a channel below. Names are stored on the device and show on every computer. Solaar may keep the active channel set to this computer's hostname."
-                textFormat: Text.PlainText
-                color: root.dim
-                font.family: root.fontFamily
-                font.pixelSize: Style.font.caption
-                wrapMode: Text.WordWrap
-              }
-              Repeater {
-                model: (device && device.hosts && device.hosts.length) ? device.hosts : []
-                Row {
-                  id: hostRow
-                  required property var modelData
-                  width: parent.width
-                  spacing: Style.space(8)
-                  Text {
-                    id: hostNum
-                    text: String(Number(hostRow.modelData.index) + 1) + (hostRow.modelData.current ? " •" : "")
-                    textFormat: Text.PlainText
-                    color: hostRow.modelData.current ? root.foreground : root.dim
-                    font.family: root.fontFamily
-                    font.pixelSize: Style.font.body
-                    font.bold: true
-                    width: Style.space(28)
-                    anchors.verticalCenter: parent.verticalCenter
-                  }
-                  TextField {
-                    id: hostNameField
-                    width: parent.width - hostNum.width - hostRenameBtn.implicitWidth - parent.spacing * 2
-                    placeholderText: root.hidName(hostRow.modelData, "Channel " + (Number(hostRow.modelData.index) + 1))
-                    font.family: root.fontFamily
-                    onAccepted: {
-                      mx.renameHost(hostRow.modelData.index, text)
-                      text = ""
-                    }
-                  }
-                  Button {
-                    id: hostRenameBtn
-                    text: "Rename"
-                    bordered: true
-                    focusable: true
-                    foreground: root.foreground
-                    fontFamily: root.fontFamily
-                    onClicked: {
-                      mx.renameHost(hostRow.modelData.index, hostNameField.text)
-                      hostNameField.text = ""
-                    }
-                  }
-                }
-              }
+              device: root.device
+              canWrite: root.canWrite
+              onDropdownOpenChanged: root.dropdownOpen = dropdownOpen
             }
 
             SectionCard {
@@ -830,12 +765,10 @@ Item {
             }
 
             Text {
-              visible: root.canWrite && ((root.section === "hosts" && !hostSetting && !(device && device.hosts && device.hosts.length))
-                || (root.section === "advanced" && extraSettings.length === 0)
+              visible: root.canWrite && ((root.section === "advanced" && extraSettings.length === 0)
                 || (root.section === "device" && !(dpiSetting || smartSetting || smartThresholdSetting || invertSetting || hiresSetting || thumbInvertSetting || thumbModeSetting || fnSetting || backlightSetting || platformSetting || lockSetting)))
               width: parent.width
-              text: root.section === "hosts" ? "This device does not expose Easy Switch controls."
-                : root.section === "advanced" ? "No additional settings are exposed by this device."
+              text: root.section === "advanced" ? "No additional settings are exposed by this device."
                 : "Use the other tabs to configure the settings this device exposes."
               color: root.dim
               font.family: root.fontFamily

@@ -50,7 +50,7 @@ If you only want hardware settings and do not use Omarchy, use Solaar directly.
 | Keyboard | Function-key mode, platform layout, backlight | When exposed by firmware; arbitrary F-row remapping is not guaranteed |
 | Profiles | Save and re-apply a snapshot of a device's settings | Local, manual; applied without rollback |
 | Easy-Switch host names | View and rename the paired-host labels stored on a device | |
-| **Coordinated switching** | Move a group of devices to target 1, 2 or 3 at once | Per-device channel mapping; mice first, keyboard last |
+| **Coordinated switching** | Move a group of devices to another computer at once | Channels matched by stored host name, or mapped by hand; mice first, keyboard last |
 | **Physical Easy-Switch following** | Pressing the keyboard's channel button moves the rest of the group | Experimental; needs Easy-Switch key reporting or CHANGE_HOST v2; outbound only |
 
 MX-series devices are the primary scope. A supported receiver does not mean every peripheral attached to it is supported. Firmware, connection method, permissions and sleep state all affect which controls appear.
@@ -142,11 +142,14 @@ If Solaar is missing or your user lacks hidraw permission, the panel offers two 
 ### Set up
 
 1. Pair each device with each computer using its normal Easy-Switch pairing process.
-2. In settings, open **Easy Switch** and select the devices that should move together.
-3. For each device, map logical **Target 1 / 2 / 3** to that device's physical channel **1 / 2 / 3**. Each target must use a different channel on a given device.
-4. Changes save immediately. Use **Switch to 1 / 2 / 3**, or the popup's **Switch desk to** buttons.
+2. In settings, open **Easy Switch** and turn on each device that should move together under **Devices in the group**.
+3. Your computers appear under **Switch together**, named after the host names stored on the devices. When a device joins, its channels are matched to those computers by name, so devices that store channels in a different order still line up.
+4. If names are missing or differ (for example a receiver keyboard that only knows channel numbers), open **Customize channels** and pick, for each device, the channel it uses for each computer. Each computer must use a different channel on a given device; picking a channel that is already in use swaps the two.
+5. Changes save immediately. Use **Switch** next to a computer, or the popup's **Switch desk to** buttons.
 
-Channel numbers may differ between devices. If your laptop is channel 1 on the keyboard but channel 3 on the mouse, map Target 1 to keyboard channel 1 and mouse channel 3. Map targets to destination computers; do not assume equal channel numbers mean the same computer.
+Channel numbers may differ between devices. If your laptop is channel 1 on the keyboard but channel 3 on the mouse, the laptop row should list keyboard channel 1 and mouse channel 3. If the stored names suggest a different mapping than the saved one, the page says so and offers **Match channels by name**. Names are only a hint; equal names on two devices do not prove they point at the same computer.
+
+The **Switch only …** card below moves just the selected device and lets you rename its channels.
 
 ### What happens when you switch
 
@@ -176,7 +179,7 @@ Back up the file before editing, then validate with `hyprctl reload` and `hyprct
 With this on, pressing the keyboard's own Easy-Switch button moves the rest of the group to the matching target.
 
 1. Include a keyboard in the group.
-2. Select it as the source and enable **Follow this keyboard's physical Easy-Switch buttons**. It takes effect immediately.
+2. Turn on **Follow this keyboard's Easy-Switch keys**, shown under that keyboard in **Devices in the group**. It takes effect immediately.
 
 The helper picks one of two ways to notice the key press:
 

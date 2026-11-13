@@ -308,8 +308,9 @@ class PerformanceTests(unittest.TestCase):
         service = SERVICE.read_text(encoding="utf-8")
         self.assertIn("rename-host", service)
         self.assertIn("patchDeviceHostName", service)
-        settings = SETTINGS.read_text(encoding="utf-8")
-        self.assertIn("renameHost", settings)
+        # Channel renaming lives on the Easy Switch page.
+        page = (ROOT / "SwitchGroup.qml").read_text(encoding="utf-8")
+        self.assertIn("renameHost", page)
         model = MODEL.read_text(encoding="utf-8")
         self.assertIn("function patchDeviceHostName", model)
 
