@@ -3,9 +3,8 @@
   "group.description": "Choose the devices to move together and map each target to the paired channel on each device. Changes save automatically. Mice switch first and keyboards last. Devices must already be paired with the destination.",
   "group.target": "Target %1",
   "group.switch": "Switch to %1",
-  "group.follow": "Follow this keyboard\u2019s physical Easy-Switch buttons (experimental)",
-  "group.listening": "Listening for this keyboard\u2019s Easy-Switch keys. Press a key to move the rest of the group with it. Test each destination before relying on it.",
-  "group.followHelp": "Select a grouped keyboard to enable following; it takes effect immediately. The keyboard must report its Easy-Switch keys or support CHANGE_HOST v2. Otherwise use the Switch buttons or Super+Ctrl+Alt+1/2/3. To switch back, the other computer needs its own switching software.",
+  "group.follow": "Follow this keyboard\u2019s Easy-Switch keys",
+  "group.listening": "On. Pressing a channel key on this keyboard moves the rest of the group with it. To switch back with one press, run MX Unison on the other computer too.",
   "scroll.title": "Scroll speed",
   "scroll.apply": "Apply scroll speed",
   "scroll.reset": "Use system default",
@@ -15,5 +14,7 @@
   "popup.sensitivity": "Sensitivity",
   "popup.smartshiftHelp": "Ratchets when you scroll slowly, spins freely when you scroll fast.",
   "popup.fnHelp": "When on, F1\u2013F12 act as media keys; hold Fn for F-keys.",
-  "popup.settings": "Settings\u2026"
+  "popup.settings": "Settings\u2026",
+  "group.followOff": "Off. Turn on to make the rest of the group move whenever you press a channel key on this keyboard.",
+  "group.starting": "Starting\u2026"
 }

@@ -98,6 +98,28 @@ Column {
           }
         }
       }
+      // Physical following belongs to a specific keyboard, so it sits under
+      // that keyboard instead of depending on which device is selected.
+      Toggle {
+        readonly property bool on: root.draft.follow && root.draft.keyboard === member.did
+        visible: member.included && String(member.modelData.kind || "").toLowerCase() === "keyboard"
+        width: parent.width
+        label: strings.t("group.follow")
+        description: !on ? strings.t("group.followOff")
+          : root.mx.switchRuntime.listening ? strings.t("group.listening")
+          : String(root.mx.switchRuntime.error || strings.t("group.starting"))
+        checked: on
+        foreground: Color.foreground
+        accent: Color.accent
+        fontFamily: Style.font.family
+        titleSize: Style.font.body
+        onClicked: {
+          var next = JSON.parse(JSON.stringify(root.draft))
+          next.follow = !on
+          next.keyboard = next.follow ? member.did : ""
+          root.commit(next)
+        }
+      }
     }
   }
   Row {
@@ -113,26 +135,5 @@ Column {
         onClicked: root.mx.switchTogether(index + 1)
       }
     }
-  }
-  CheckBox {
-    width: parent.width
-    text: strings.t("group.follow")
-    checked: root.draft.follow
-    enabled: !!root.mx.selectedDevice && root.mx.selectedDevice.kind === "keyboard" && !!root.draft.members[String(root.mx.selectedDevice.id)]
-    onClicked: {
-      var next = JSON.parse(JSON.stringify(root.draft))
-      next.follow = checked
-      next.keyboard = checked ? String(root.mx.selectedDevice.id) : ""
-      root.commit(next)
-    }
-  }
-  Text {
-    width: parent.width
-    text: root.mx.switchRuntime.listening ? strings.t("group.listening") : String(root.mx.switchRuntime.error || strings.t("group.followHelp"))
-    textFormat: Text.PlainText
-    wrapMode: Text.WordWrap
-    color: Qt.alpha(Color.foreground, 0.68)
-    font.family: Style.font.family
-    font.pixelSize: Style.font.caption
   }
 }
