@@ -1775,6 +1775,45 @@ def switch_device_present(dev) -> bool:
         return False
 
 
+def switch_current_channel(dev):
+    """Live CHANGE_HOST read of the active channel (0-based), or None."""
+    try:
+        from logitech_receiver.hidpp20_constants import SupportedFeature
+        reply = dev.feature_request(SupportedFeature.CHANGE_HOST, 0x00)
+        return reply[1] if reply and len(reply) > 1 else None
+    except Exception:
+        return None
+
+
+# Devices that left in the latest switch: {device id: (monotonic time, kind)}.
+# A Bluetooth device that reappears soon after was not accepted by the
+# destination and returned on its own.
+RECENT_DEPARTURES: dict = {}
+BOUNCE_WINDOW_SEC = 45.0
+
+
+def note_bounces(opened, before_paths) -> str:
+    """Report devices that came back right after leaving; returns a message."""
+    now = time.monotonic()
+    for key in [k for k, (ts, _) in RECENT_DEPARTURES.items() if now - ts > BOUNCE_WINDOW_SEC]:
+        RECENT_DEPARTURES.pop(key, None)
+    message = ""
+    for handle in opened:
+        path = getattr(handle, "path", None)
+        if not getattr(handle, "isDevice", False) or path in before_paths:
+            continue
+        did = device_id(handle)
+        if did not in RECENT_DEPARTURES:
+            continue
+        ts, kind = RECENT_DEPARTURES.pop(did)
+        after = int(round(now - ts))
+        log_switch({"ts": int(time.time()), "trigger": "return", "target": None, "result": "bounced",
+                    "error": "", "steps": [{"kind": kind, "channel": 0, "attempts": 0, "outcome": f"back after {after}s"}]})
+        message = (f"The {kind} came back after {after} s: the other computer did not accept it. "
+                   "Check that it is awake with Bluetooth on, then try again.")
+    return message
+
+
 def switch_group(mods, opened, cmd):
     import mxswitch
     config = switch_config()
@@ -1794,9 +1833,15 @@ def switch_group(mods, opened, cmd):
         # left over from before a reconnect looks online but reaches nothing.
         work = mxswitch.prepare(config, list(iter_devices(opened)), device_id,
                                 switch_device_present, lambda d: switch_setting(mods, d),
-                                cmd.get("target"), source, lambda d: hosts.get(device_id(d), []))
+                                cmd.get("target"), source, lambda d: hosts.get(device_id(d), []),
+                                current_for=switch_current_channel)
         result = mxswitch.execute(work, present=switch_device_present)
         entry["steps"] = result["steps"]
+        RECENT_DEPARTURES.clear()
+        now = time.monotonic()
+        for (did, dev, _setting, _channel), step in zip(work, result["steps"]):
+            if step["outcome"] == "left":
+                RECENT_DEPARTURES[did] = (now, step["kind"])
         write_bytes(profiles_dir() / "switch-result.json", (json.dumps(result) + "\n").encode())
     except Exception as exc:
         entry.update(result="error", error=plain_hid_text(str(exc))[:300], steps=getattr(exc, "steps", []))
@@ -2283,7 +2328,11 @@ def serve_command() -> int:
                 if plan["reopen"]:
                     current_instances = hidraw_instances(next_nodes)
                     opened = prune_dead(opened, opened_instances, current_instances)
+                    before_paths = {getattr(h, "path", None) for h in opened}
                     opened, permission_error = add_new_devices(mods, opened)
+                    bounced = note_bounces(opened, before_paths)
+                    if bounced:
+                        last_error = bounced
                     opened_instances = {path: inst for path, inst in current_instances.items()
                                         if path in {getattr(h, "path", None) for h in opened}}
                     schedule_reopen()

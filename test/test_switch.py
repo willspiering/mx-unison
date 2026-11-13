@@ -90,6 +90,23 @@ class Switching(unittest.TestCase):
                 hosts_for=lambda d: [{"index": 2, "paired": False}] if d.id == "keys" else [])
         self.assertEqual(self.sent, [])
 
+    def test_devices_already_on_target_are_skipped(self):
+        # Mouse maps target 2 -> channel 0 and is already there (live read).
+        work = mxswitch.prepare(self.config, self.devices, lambda d: d.id, lambda d: True,
+                                lambda d: self.settings.get(d.id), 2,
+                                current_for=lambda d: 0 if d.id == "mouse" else 2)
+        self.assertEqual([row[0] for row in work], ["keys"])
+        # Everything already there: nothing to send.
+        none = mxswitch.prepare(self.config, self.devices, lambda d: d.id, lambda d: True,
+                                lambda d: self.settings.get(d.id), 2,
+                                current_for=lambda d: {"mouse": 0, "keys": 1}[d.id])
+        self.assertEqual(none, [])
+
+    def test_unknown_current_channel_still_switches(self):
+        work = mxswitch.prepare(self.config, self.devices, lambda d: d.id, lambda d: True,
+                                lambda d: self.settings.get(d.id), 2, current_for=lambda d: None)
+        self.assertEqual(len(work), 2)
+
     def run_verified(self, answers):
         """answers: per-device list of ping results consumed in order."""
         pings = {did: list(seq) for did, seq in answers.items()}

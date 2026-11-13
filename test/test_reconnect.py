@@ -75,6 +75,27 @@ class Reconnect(unittest.TestCase):
         self.assertEqual(len(lines), mxctl.SWITCH_LOG_LINES)
         self.assertIn('"ts": 5', lines[0])
 
+    def test_bounce_back_is_reported(self):
+        from unittest.mock import patch
+        mouse = SimpleNamespace(path="/dev/hidraw9", isDevice=True, serial="SYNTH001", unitId="")
+        with tempfile.TemporaryDirectory() as tmp, patch.object(mxctl, "runtime_dir", lambda: Path(tmp)), \
+                patch.object(mxctl, "device_id", lambda d: "synthetic-mouse"):
+            mxctl.RECENT_DEPARTURES.clear()
+            mxctl.RECENT_DEPARTURES["synthetic-mouse"] = (mxctl.time.monotonic() - 12, "mouse")
+            # Already-open handles are not "returns".
+            self.assertEqual(mxctl.note_bounces([mouse], {"/dev/hidraw9"}), "")
+            message = mxctl.note_bounces([mouse], set())
+            log = (Path(tmp) / "switch-log.jsonl").read_text()
+        self.assertIn("mouse came back after 12 s", message)
+        self.assertIn('"bounced"', log)
+        self.assertEqual(mxctl.RECENT_DEPARTURES, {})
+
+    def test_old_departures_expire(self):
+        mxctl.RECENT_DEPARTURES.clear()
+        mxctl.RECENT_DEPARTURES["x"] = (mxctl.time.monotonic() - 100, "mouse")
+        self.assertEqual(mxctl.note_bounces([], set()), "")
+        self.assertEqual(mxctl.RECENT_DEPARTURES, {})
+
 
 if __name__ == "__main__":
     unittest.main()

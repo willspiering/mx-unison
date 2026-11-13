@@ -55,8 +55,13 @@ def load(path):
         os.close(fd)
 
 
-def prepare(config, devices, identity, online, setting_for, target, source="", hosts_for=None):
-    """Preflight every member before changing any device. Targets are 1..3."""
+def prepare(config, devices, identity, online, setting_for, target, source="", hosts_for=None, current_for=None):
+    """Preflight every member before changing any device. Targets are 1..3.
+
+    ``current_for`` reads a device's active channel live (not from a cached
+    snapshot). Devices already on the target channel are skipped: a
+    CHANGE_HOST to the current host makes the device drop and reconnect.
+    """
     config = validate(config)
     if type(target) is not int or target not in (1, 2, 3):
         raise ValueError("Choose target 1, 2, or 3")
@@ -79,6 +84,8 @@ def prepare(config, devices, identity, online, setting_for, target, source="", h
             raise ValueError("A grouped device is not paired on the target channel; nothing was switched")
         if channel not in [int(c) for c in setting.choices]:
             raise ValueError("A target channel is unavailable; nothing was switched")
+        if current_for is not None and current_for(dev) == channel:
+            continue
         work.append((did, dev, setting, channel))
     # Keep keyboard available until all mouse/other commands have been sent.
     work.sort(key=lambda row: ("key" in str(getattr(row[1], "kind", "")).lower() or "key" in str(getattr(row[1], "name", "")).lower(), row[0]))
