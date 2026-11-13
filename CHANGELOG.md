@@ -18,6 +18,7 @@
 - Replaced device-like identifiers in test fixtures with synthetic values.
 - Rebuilt the settings window in a minimal terminal style. The sidebar lists **Desk** and each device (no device dropdown); a device page shows its sections in order, with inline help, jump links and a status/progress view while its settings are still being read. Rare settings sit under **More**.
 - **Desk** shows one row per computer, named from the devices' stored host names, each with its own Switch button. Group membership uses whole-row toggles. A joining device's channels are matched by host name, with manual mapping behind **Customize channels**. A device's own channel buttons and channel renaming are on its page.
+- The Buttons section lists every control with a one-line summary of what it does (default, a shortcut, gestures, a hardware remap, app overrides). Clicking a control opens its editor inline: app chips for All apps and overrides, shortcut steps with Record (which appends, for sequences) and presets, a gesture pad, and the control's hardware remap and Solaar handling. Unsaved edits are marked.
 - Fixed settings dropdowns that stopped following the device after being used once.
 - Fixed the selected device snapping back to the one last chosen in the popup: that choice is saved as the preferred device and used to override every later pick. A pick made this session now wins; the saved preference only seeds the selection.
 

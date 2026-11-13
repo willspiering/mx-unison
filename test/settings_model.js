@@ -53,4 +53,31 @@ assert.equal(Model.preferredDeviceId('keys', '', true), 'keys')
 const pickList = [{ id: 'keys', kind: 'keyboard', online: true }, { id: 'mouse', kind: 'mouse', online: true }]
 assert.equal(Model.pickDefaultDevice(pickList, Model.preferredDeviceId('keys', 'mouse', true), true).id, 'mouse')
 assert.equal(Model.pickDefaultDevice(pickList, Model.preferredDeviceId('keys', 'keys', true), true).id, 'keys')
+// Buttons list summary: software actions, overrides and hardware state.
+const back = { key: '83', label: 'Back Button', remap: null,
+  divert: { key: '83', value: 0, choices: [{ id: 0, name: 'Regular' }, { id: 1, name: 'Diverted' }, { id: 2, name: 'Mouse Gestures' }] } }
+const binds = [
+  { device: 'm', control: '83', app: '', mode: 'shortcut', shortcut: 'ALT+Left', gestures: {} },
+  { device: 'm', control: '83', app: 'zed', mode: 'shortcut', shortcut: 'CTRL+minus', gestures: {} },
+  { device: 'm', control: '83', app: 'chromium', mode: 'shortcut', shortcut: 'ALT+Left', gestures: {} },
+  { device: 'm', control: '82', app: '', mode: 'gesture', shortcut: 'CTRL+t', gestures: { up: 'SUPER+Up' } }
+]
+const backState = Model.controlState(back, binds)
+assert.equal(backState.binding.shortcut, 'ALT+Left')
+assert.deepEqual(backState.overrides, ['chromium', 'zed'])
+assert.equal(backState.software, true)
+assert.equal(backState.gestures, true)
+assert.equal(backState.remapped, '')
+assert.equal(backState.diverted, '')
+const left = { key: '80', label: 'Left Button', divert: null,
+  remap: { key: '80', value: 81, choices: [{ id: 80, name: 'Left Click' }, { id: 81, name: 'Right Click' }] } }
+const leftState = Model.controlState(left, binds)
+assert.equal(leftState.binding, null)
+assert.equal(leftState.software, false)
+assert.equal(leftState.remapped, 'Right Click')
+assert.equal(Model.controlState(Object.assign({}, left, { remap: Object.assign({}, left.remap, { value: 80 }) }), []).remapped, '')
+const ruled = Object.assign({}, back, { divert: Object.assign({}, back.divert, { value: { id: 1, name: 'Diverted' } }) })
+assert.equal(Model.controlState(ruled, []).diverted, 'Diverted')
+assert.equal(Model.controlState(null, null).binding, null)
+assert.equal(Model.stepsSummary('CTRL+c\n\nCTRL+v'), 'CTRL+c → CTRL+v')
 console.log('Pointer model checks passed')

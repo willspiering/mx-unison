@@ -18,7 +18,6 @@ Item {
   // "desk": devices overview and switching the whole group.
   // "device": everything for the selected device, as one page of sections.
   property string page: "desk"
-  property bool showHardware: false
   property bool showMore: false
   // Section to scroll to once the device page has laid out.
   property string pendingJump: ""
@@ -781,59 +780,15 @@ Item {
               anchorKey: "buttons"
               visible: root.page === "device" && root.canWrite
               title: Model.isKeyboard(device) ? strings.t("page.actions") : strings.t("page.buttons")
+              hint: strings.t("actions.help")
               ActionEditor {
                 width: parent.width
                 service: root.mx
                 device: root.device
                 controls: root.assignmentControls
-              }
-              Disclosure {
-                text: strings.t("page.hardware")
-                open: root.showHardware
-                onClicked: root.showHardware = !root.showHardware
-              }
-              Column {
-                visible: root.showHardware
-                width: parent.width
-                spacing: Style.space(16)
-                Text {
-                  width: parent.width
-                  text: root.assignmentControls.length === 0
-                    ? "This device does not expose configurable buttons or keys."
-                    : "Hardware remaps apply across all apps. Solaar rule handling is for external Solaar rules; leave it Regular when using the actions above."
-                  textFormat: Text.PlainText
-                  color: root.dim
-                  font.family: root.fontFamily
-                  font.pixelSize: Style.font.caption
-                  wrapMode: Text.WordWrap
-                }
-                Repeater {
-                  model: root.assignmentControls
-                  MxField {
-                    id: assignment
-                    required property var modelData
-                    stacked: true
-                    label: modelData.label
-                    Flow {
-                      width: parent.width
-                      spacing: Style.space(12)
-                      MapRow {
-                        visible: !!assignment.modelData.remap
-                        width: parent.width < Style.space(560) || !assignment.modelData.divert ? parent.width : (parent.width - parent.spacing) / 2
-                        row: assignment.modelData.remap
-                        setting: root.remapSetting
-                        label: "Hardware action"
-                      }
-                      MapRow {
-                        visible: !!assignment.modelData.divert
-                        width: parent.width < Style.space(560) || !assignment.modelData.remap ? parent.width : (parent.width - parent.spacing) / 2
-                        row: assignment.modelData.divert
-                        setting: root.divertSetting
-                        label: "Solaar rule handling"
-                      }
-                    }
-                  }
-                }
+                remapSetting: root.remapSetting
+                divertSetting: root.divertSetting
+                onDropdownOpenChanged: root.dropdownOpen = dropdownOpen
               }
             }
 

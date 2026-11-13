@@ -1114,6 +1114,56 @@ function assignmentControls(remap, divert) {
   return result
 }
 
+// What a control does right now, for the buttons list. `bindings` are the
+// software action rows for this device. Hardware state comes from the
+// control's remap row (a different target than the control itself) and
+// divert row (anything but Regular, id 0).
+function controlState(control, bindings) {
+  var key = control ? String(control.key) : ""
+  var rows = Array.isArray(bindings) ? bindings.filter(function(r) { return r && String(r.control) === key }) : []
+  var base = null
+  var overrides = []
+  for (var i = 0; i < rows.length; i++) {
+    if (!rows[i].app) base = rows[i]
+    else overrides.push(String(rows[i].app))
+  }
+  overrides.sort()
+  var remapped = ""
+  var remap = control && control.remap
+  if (remap && remap.value !== undefined && remap.value !== null && String(choiceRowId(remap.value)) !== key) {
+    remapped = choiceRowName(remap, remap.value)
+  }
+  var diverted = ""
+  var divert = control && control.divert
+  if (divert && divert.value !== undefined && divert.value !== null && Number(choiceRowId(divert.value)) !== 0) {
+    diverted = choiceRowName(divert, divert.value)
+  }
+  return {
+    binding: base,
+    overrides: overrides,
+    software: !!control && !!control.divert,
+    gestures: !!divert && (divert.choices || []).some(function(c) { return c && Number(c.id) === 2 }),
+    remapped: remapped,
+    diverted: diverted
+  }
+}
+
+function choiceRowId(value) {
+  return value && typeof value === "object" && value.id !== undefined ? value.id : value
+}
+
+function choiceRowName(row, value) {
+  var id = String(choiceRowId(value))
+  var choices = row && row.choices ? row.choices : []
+  for (var i = 0; i < choices.length; i++) if (choices[i] && String(choices[i].id) === id) return String(choices[i].name || id)
+  return id
+}
+
+// A saved step list as one short line: "CTRL+c → CTRL+v".
+function stepsSummary(steps) {
+  return String(steps || "").split("\n").filter(function(s) { return s.trim() !== "" }).join(" → ")
+}
+
 function optionLabel(option) {
   if (!option) return ""
   if (typeof option === "object") return String(option.label !== undefined ? option.label : option.name || option.value || "")
@@ -1322,6 +1372,8 @@ if (typeof module !== "undefined") {
     smartShiftState: smartShiftState,
     remainingSettings: remainingSettings,
     assignmentControls: assignmentControls,
+    controlState: controlState,
+    stepsSummary: stepsSummary,
     divertLayout: divertLayout,
     bindKeyLayout: bindKeyLayout,
     mxKeysLayout: mxKeysLayout,
