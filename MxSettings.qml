@@ -568,6 +568,8 @@ Item {
               Text {
                 visible: (mx.displayDevices || []).length === 0
                 width: parent.width
+                leftPadding: Style.space(10)
+                rightPadding: Style.space(10)
                 text: root.statusMessage()
                 textFormat: Text.PlainText
                 color: root.dim
@@ -597,6 +599,7 @@ Item {
               anchorKey: "status"
               visible: root.page === "device" && !root.canWrite
               title: strings.t("page.status")
+              MxInset {
               Text {
                 width: parent.width
                 text: root.statusMessage()
@@ -612,6 +615,7 @@ Item {
                 cells: 24
                 suffix: mx.readPercent + "%"
                 fontSize: Style.font.body
+              }
               }
             }
 
@@ -912,8 +916,10 @@ Item {
       Behavior on color { ColorAnimation { duration: Style.duration(100) } }
       Rectangle {
         visible: nav.selected
+        x: Style.space(3)
         width: 2
-        height: parent.height - Style.space(12)
+        radius: 1
+        height: parent.height - Style.space(14)
         anchors.verticalCenter: parent.verticalCenter
         color: root.accent
       }
@@ -986,15 +992,14 @@ Item {
     Keys.onSpacePressed: deviceRow.activated()
     Rectangle {
       anchors.fill: parent
-      anchors.leftMargin: -Style.space(8)
-      anchors.rightMargin: -Style.space(8)
       radius: Style.cornerRadius
       color: deviceRow.activeFocus || rowMouse.containsMouse ? Style.hoverFillFor(root.foreground, root.accent) : "transparent"
       Behavior on color { ColorAnimation { duration: Style.duration(100) } }
     }
     Row {
+      x: Style.space(10)
       anchors.verticalCenter: parent.verticalCenter
-      width: parent.width
+      width: parent.width - Style.space(20)
       spacing: Style.space(12)
       opacity: deviceRow.item && deviceRow.item.online === false ? 0.55 : 1
       Text {
@@ -1067,7 +1072,8 @@ Item {
     iconRotation: open ? 90 : 0
     leftAlign: true
     focusable: true
-    horizontalPadding: Style.space(4)
+    // Chevron sits on the same gutter as row text.
+    horizontalPadding: Style.space(10)
     Behavior on iconRotation { NumberAnimation { duration: Style.duration(120); easing.type: Easing.OutCubic } }
   }
 

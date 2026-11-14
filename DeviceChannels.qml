@@ -28,6 +28,8 @@ Column {
   Text {
     visible: !root.available
     width: parent.width
+    leftPadding: Style.space(10)
+    rightPadding: Style.space(10)
     text: strings.t("device.none")
     textFormat: Text.PlainText
     color: Qt.alpha(Color.foreground, 0.55)
@@ -60,6 +62,7 @@ Column {
 
   Button {
     visible: root.grouped
+    x: Style.space(10)
     text: strings.t("device.openDesk")
     iconText: "󰍹"
     bordered: true
@@ -76,7 +79,7 @@ Column {
     iconRotation: open ? 90 : 0
     leftAlign: true
     focusable: true
-    horizontalPadding: Style.space(4)
+    horizontalPadding: Style.space(10)
     onClicked: open = !open
     Behavior on iconRotation { NumberAnimation { duration: Style.duration(120); easing.type: Easing.OutCubic } }
   }
@@ -87,6 +90,8 @@ Column {
     spacing: Style.space(10)
     Text {
       width: parent.width
+      leftPadding: Style.space(10)
+      rightPadding: Style.space(10)
       text: strings.t("device.renameHelp")
       textFormat: Text.PlainText
       color: Qt.alpha(Color.foreground, 0.55)

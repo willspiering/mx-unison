@@ -24,8 +24,12 @@ Column {
   width: parent ? parent.width : implicitWidth
   spacing: Style.space(12)
 
+  // Same gutter as MxField/MxInset content.
+  readonly property real gutter: Style.space(10)
+
   Item {
-    width: parent.width
+    x: section.gutter
+    width: parent.width - section.gutter * 2
     implicitHeight: heading.implicitHeight
     Text {
       id: heading
@@ -62,7 +66,8 @@ Column {
 
   Text {
     visible: section.hint !== ""
-    width: parent.width
+    x: section.gutter
+    width: parent.width - section.gutter * 2
     text: section.hint
     textFormat: Text.PlainText
     color: Qt.alpha(Color.foreground, 0.55)
@@ -74,6 +79,6 @@ Column {
   Column {
     id: body
     width: parent.width
-    spacing: Style.space(10)
+    spacing: Style.space(4)
   }
 }

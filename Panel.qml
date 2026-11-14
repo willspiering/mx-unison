@@ -328,7 +328,8 @@ Panel {
             width: parent.width
             spacing: Style.space(8)
             Item {
-              width: parent.width
+              x: Style.space(10)
+              width: parent.width - Style.space(20)
               implicitHeight: brand.implicitHeight
               Text {
                 id: brand
@@ -354,7 +355,8 @@ Panel {
             // Last action or error, one line.
             Text {
               visible: !!(mx && (mx.actionStatus !== "" || mx.lastError !== ""))
-              width: parent.width
+              x: Style.space(10)
+              width: parent.width - Style.space(20)
               text: "› " + (mx && mx.actionStatus !== "" ? mx.actionStatus : (mx ? mx.lastError : ""))
               textFormat: Text.PlainText
               color: mx && mx.lastError !== "" && mx.actionStatus === "" ? root.urgent : root.dim
@@ -369,6 +371,7 @@ Panel {
             visible: !!(mx && !mx.installed)
             title: "Setup"
             hint: "MX Unison uses Solaar to talk to Logitech devices. Install it, then reconnect your devices."
+            MxInset {
             Button {
               text: "Install Solaar"
               bordered: true
@@ -378,12 +381,14 @@ Panel {
               onClicked: if (mx) mx.installSolaar()
               onHovered: function(on) { if (on) root.setCursor("install", 0) }
             }
+            }
           }
 
           MxSection {
             visible: !!(mx && mx.installed && !mx.accessible && !mx.connecting)
             title: "Access"
             hint: "Solaar is installed, but your user cannot open the devices yet. Reconnect them, or reload the device rules."
+            MxInset {
             Button {
               text: "Reload udev"
               bordered: true
@@ -392,6 +397,7 @@ Panel {
               fontFamily: root.fontFamily
               onClicked: if (mx) mx.triggerUdev()
               onHovered: function(on) { if (on) root.setCursor("access", 0) }
+            }
             }
           }
 
@@ -412,26 +418,27 @@ Panel {
                   readonly property bool cursor: root.cursorActive && root.focusSection === "devices" && root.cursorIndex === index
                   readonly property int battery: Model.batteryPercent(modelData)
                   width: parent.width
-                  implicitHeight: Style.space(34)
+                  implicitHeight: Style.space(38)
                   Rectangle {
                     anchors.fill: parent
-                    anchors.leftMargin: -Style.space(8)
-                    anchors.rightMargin: -Style.space(8)
                     radius: Style.cornerRadius
                     color: deviceRow.selected ? Qt.alpha(root.accent, 0.12)
                       : (deviceRow.cursor || rowMouse.containsMouse) ? Style.hoverFillFor(root.foreground, root.accent) : "transparent"
                     Behavior on color { ColorAnimation { duration: Style.duration(100) } }
                     Rectangle {
                       visible: deviceRow.selected
+                      x: Style.space(3)
                       width: 2
-                      height: parent.height - Style.space(10)
+                      height: parent.height - Style.space(14)
+                      radius: 1
                       anchors.verticalCenter: parent.verticalCenter
                       color: root.accent
                     }
                   }
                   Row {
+                    x: Style.space(10)
                     anchors.verticalCenter: parent.verticalCenter
-                    width: parent.width
+                    width: parent.width - Style.space(20)
                     spacing: Style.space(10)
                     opacity: deviceRow.modelData.online === false ? 0.55 : 1
                     Text {
@@ -499,6 +506,7 @@ Panel {
           MxSection {
             visible: root.showDesk
             title: strings.t("popup.switchDesk")
+            MxInset {
             ButtonGroup {
               width: parent.width
               options: root.deskOptions
@@ -510,12 +518,14 @@ Panel {
               onChanged: function(value) { root.switchDesk(value) }
               onHovered: function(index, on) { if (on) root.setCursor("desk", index) }
             }
+            }
           }
 
           // ── No group yet: move just this device ─────────────────────
           MxSection {
             visible: root.showHosts
             title: strings.t("popup.switchDevice")
+            MxInset {
             ButtonGroup {
               width: parent.width
               options: root.hostOptions
@@ -526,6 +536,7 @@ Panel {
               cursorIndex: root.cursorActive && root.focusSection === "hosts" ? root.cursorIndex : -1
               onChanged: function(value) { if (hostSetting) root.writeSetting(hostSetting, value) }
               onHovered: function(index, on) { if (on) root.setCursor("hosts", index) }
+            }
             }
           }
 
@@ -607,6 +618,7 @@ Panel {
           MxSection {
             visible: !!(mx && mx.installed && (mx.accessible || mx.connecting) && !root.canWrite)
             title: strings.t("page.status")
+            MxInset {
             Text {
               width: parent.width
               text: {
@@ -633,6 +645,7 @@ Panel {
               value: (mx && mx.readPercent ? mx.readPercent : 0) / 100
               cells: 20
               suffix: (mx && mx.readPercent ? mx.readPercent : 0) + "%"
+            }
             }
           }
 

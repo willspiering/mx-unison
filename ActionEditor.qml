@@ -133,6 +133,8 @@ Column {
 
   component Caption: Text {
     width: parent ? parent.width : implicitWidth
+    leftPadding: Style.space(10)
+    rightPadding: Style.space(10)
     textFormat: Text.PlainText
     color: editor.muted
     font.family: Style.font.family
@@ -173,6 +175,8 @@ Column {
   Text {
     visible: !!((service && service.actionRuntime || {}).error)
     width: parent.width
+    leftPadding: Style.space(10)
+    rightPadding: Style.space(10)
     bottomPadding: Style.space(8)
     text: "! " + ((service && service.actionRuntime || {}).error || "")
     textFormat: Text.PlainText
@@ -202,6 +206,7 @@ Column {
       Text {
         visible: entry.hardwareOnly && (entry.index === 0 || !!editor.ordered[entry.index - 1].divert)
         width: parent.width
+        leftPadding: Style.space(10)
         topPadding: Style.space(14)
         bottomPadding: Style.space(4)
         text: strings.t("actions.hardwareGroup")
@@ -223,8 +228,6 @@ Column {
         Keys.onSpacePressed: editor.toggle(entry.modelData.key)
         Rectangle {
           anchors.fill: parent
-          anchors.leftMargin: -Style.space(8)
-          anchors.rightMargin: -Style.space(8)
           radius: Style.cornerRadius
           color: entry.isOpen ? Qt.alpha(Color.accent, 0.08)
             : (rowItem.activeFocus || rowMouse.containsMouse) ? Style.hoverFillFor(Color.foreground, Color.accent) : "transparent"
@@ -232,6 +235,7 @@ Column {
         }
         Text {
           id: chevron
+          x: Style.space(10)
           anchors.verticalCenter: parent.verticalCenter
           text: "󰅂"
           rotation: entry.isOpen ? 90 : 0
@@ -242,7 +246,7 @@ Column {
         }
         Row {
           id: rowLabel
-          x: chevron.width + Style.space(8)
+          x: chevron.x + chevron.width + Style.space(8)
           width: Math.min(Style.space(230), Math.round(parent.width * 0.38)) - x
           anchors.verticalCenter: parent.verticalCenter
           spacing: Style.space(6)
@@ -268,7 +272,7 @@ Column {
         }
         Text {
           x: rowLabel.x + rowLabel.width + Style.space(12)
-          width: parent.width - x
+          width: parent.width - x - Style.space(10)
           anchors.verticalCenter: parent.verticalCenter
           text: editor.summary(entry.modelData)
           textFormat: Text.PlainText
@@ -293,7 +297,7 @@ Column {
         implicitHeight: visible ? body.implicitHeight + Style.space(28) : 0
         // Rail tying the editor to its row.
         Rectangle {
-          x: Style.space(4)
+          x: Style.space(13)
           y: Style.space(8)
           width: 1
           height: parent.height - Style.space(16)
@@ -301,7 +305,7 @@ Column {
         }
         Column {
           id: body
-          x: Style.space(22)
+          x: Style.space(16)
           y: Style.space(14)
           width: parent.width - x
           spacing: Style.space(14)
@@ -491,6 +495,7 @@ Column {
 
           Row {
             visible: !entry.hardwareOnly
+            x: Style.space(10)
             spacing: Style.space(8)
             Button {
               text: strings.t("actions.save")
@@ -526,7 +531,7 @@ Column {
             iconRotation: editor.showHardware ? 90 : 0
             leftAlign: true
             focusable: true
-            horizontalPadding: Style.space(4)
+            horizontalPadding: Style.space(10)
             foreground: editor.muted
             onClicked: editor.showHardware = !editor.showHardware
             Behavior on iconRotation { NumberAnimation { duration: Style.duration(120); easing.type: Easing.OutCubic } }

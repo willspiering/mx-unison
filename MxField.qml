@@ -25,7 +25,12 @@ FocusScope {
   property bool hasCursor: false
   // Stack the control under the label instead of beside it (wide controls).
   property bool stacked: false
-  readonly property real labelWidth: stacked ? width : Math.min(Style.space(230), Math.round(width * 0.38))
+  // Inner padding on every row, highlighted or not, so the hover/cursor
+  // wash never touches the text and plain rows line up with toggle rows.
+  readonly property real padX: Style.space(10)
+  readonly property real padY: Style.space(6)
+  readonly property real innerWidth: Math.max(0, width - padX * 2)
+  readonly property real labelWidth: stacked ? innerWidth : Math.min(Style.space(230), Math.round(innerWidth * 0.38))
   default property alias control: slot.data
   signal toggled()
   signal hovered(bool isHovered)
@@ -36,7 +41,7 @@ FocusScope {
   readonly property real rowHeight: stacked
     ? labelRow.implicitHeight + Style.space(8) + slot.childrenRect.height
     : Math.max(labelRow.implicitHeight, slot.childrenRect.height, switchBox.visible ? switchBox.height : 0, Style.spacing.controlHeight)
-  implicitHeight: rowHeight + (helpText.visible ? Style.space(4) + helpText.implicitHeight : 0)
+  implicitHeight: padY * 2 + rowHeight + (helpText.visible ? Style.space(4) + helpText.implicitHeight : 0)
   activeFocusOnTab: switchable
   opacity: enabled ? 1 : 0.45
 
@@ -48,10 +53,6 @@ FocusScope {
   Rectangle {
     visible: field.switchable || field.hasCursor
     anchors.fill: parent
-    anchors.leftMargin: -Style.space(8)
-    anchors.rightMargin: -Style.space(8)
-    anchors.topMargin: -Style.space(4)
-    anchors.bottomMargin: -Style.space(4)
     radius: Style.cornerRadius
     color: field.activeFocus || field.hasCursor || rowMouse.containsMouse ? Style.hoverFillFor(Color.foreground, Color.accent) : "transparent"
     Behavior on color { ColorAnimation { duration: Style.duration(100) } }
@@ -59,8 +60,9 @@ FocusScope {
 
   Row {
     id: labelRow
-    width: field.switchable ? field.width - switchBox.width - Style.space(16) : field.labelWidth
-    y: field.stacked ? 0 : Math.max(0, (field.rowHeight - implicitHeight) / 2)
+    x: field.padX
+    width: field.switchable ? field.innerWidth - switchBox.width - Style.space(16) : field.labelWidth
+    y: field.padY + (field.stacked ? 0 : Math.max(0, (field.rowHeight - implicitHeight) / 2))
     spacing: Style.space(6)
     Text {
       id: labelText
@@ -88,8 +90,9 @@ FocusScope {
   Text {
     id: helpText
     visible: field.help !== ""
-    y: field.rowHeight + Style.space(4)
-    width: field.switchable ? labelRow.width : field.width
+    x: field.padX
+    y: field.padY + field.rowHeight + Style.space(4)
+    width: field.switchable ? labelRow.width : field.innerWidth
     text: field.help
     textFormat: Text.PlainText
     color: Qt.alpha(Color.foreground, 0.55)
@@ -101,9 +104,9 @@ FocusScope {
   Item {
     id: slot
     visible: !field.switchable
-    x: field.stacked ? 0 : field.labelWidth + Style.space(12)
-    y: field.stacked ? labelRow.implicitHeight + Style.space(8) : Math.max(0, (field.rowHeight - childrenRect.height) / 2)
-    width: field.width - x - (valueText.visible ? valueText.width + Style.space(12) : 0)
+    x: field.padX + (field.stacked ? 0 : field.labelWidth + Style.space(12))
+    y: field.padY + (field.stacked ? labelRow.implicitHeight + Style.space(8) : Math.max(0, (field.rowHeight - childrenRect.height) / 2))
+    width: field.width - field.padX - x - (valueText.visible ? valueText.width + Style.space(12) : 0)
     height: childrenRect.height
   }
 
@@ -112,6 +115,7 @@ FocusScope {
     visible: field.value !== "" && !field.switchable
     width: Math.max(implicitWidth, Style.space(72))
     anchors.right: parent.right
+    anchors.rightMargin: field.padX
     y: slot.y + Math.max(0, (slot.height - height) / 2)
     horizontalAlignment: Text.AlignRight
     text: field.value
@@ -125,7 +129,8 @@ FocusScope {
     id: switchBox
     visible: field.switchable
     anchors.right: parent.right
-    y: Math.max(0, (field.rowHeight - height) / 2)
+    anchors.rightMargin: field.padX
+    y: field.padY + Math.max(0, (field.rowHeight - height) / 2)
     width: track.width
     height: track.height
     ToggleSwitch {

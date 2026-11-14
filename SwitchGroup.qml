@@ -116,6 +116,8 @@ Column {
 
   component Caption: Text {
     width: parent ? parent.width : implicitWidth
+    leftPadding: Style.space(10)
+    rightPadding: Style.space(10)
     textFormat: Text.PlainText
     color: root.dim
     font.family: Style.font.family
@@ -129,7 +131,7 @@ Column {
     iconRotation: open ? 90 : 0
     leftAlign: true
     focusable: true
-    horizontalPadding: Style.space(4)
+    horizontalPadding: Style.space(10)
     foreground: Color.foreground
     fontFamily: Style.font.family
     Behavior on iconRotation { NumberAnimation { duration: Style.duration(120); easing.type: Easing.OutCubic } }
@@ -150,7 +152,7 @@ Column {
         implicitHeight: Math.max(computerText.implicitHeight, action.height) + Style.space(8)
         Text {
           id: marker
-          x: 0
+          x: Style.space(10)
           y: Style.space(4)
           text: computer.modelData.here ? "●" : "○"
           textFormat: Text.PlainText
@@ -160,9 +162,9 @@ Column {
         }
         Column {
           id: computerText
-          x: marker.width + Style.space(10)
+          x: marker.x + marker.width + Style.space(10)
           y: Style.space(4)
-          width: parent.width - x - action.width - Style.space(12)
+          width: parent.width - x - action.width - Style.space(22)
           spacing: Style.space(2)
           Text {
             width: parent.width
@@ -179,6 +181,7 @@ Column {
         Item {
           id: action
           anchors.right: parent.right
+          anchors.rightMargin: Style.space(10)
           y: Style.space(4)
           width: Math.max(goButton.implicitWidth, hereText.implicitWidth)
           height: goButton.implicitHeight
@@ -243,6 +246,8 @@ Column {
           implicitHeight: follow.implicitHeight
           Text {
             id: branch
+            x: Style.space(10)
+            y: Style.space(6)
             text: "└"
             textFormat: Text.PlainText
             color: Qt.alpha(Color.foreground, 0.3)
@@ -286,6 +291,7 @@ Column {
         color: Color.foreground
       }
       Button {
+        x: Style.space(10)
         text: strings.t("group.matchNames")
         bordered: true
         focusable: true
