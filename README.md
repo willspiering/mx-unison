@@ -13,6 +13,7 @@ It runs inside Omarchy's existing Quickshell bar, talks to devices locally over 
 
 ## Contents
 
+- [What sets it apart](#what-sets-it-apart)
 - [Who it is for](#who-it-is-for)
 - [Features](#features)
 - [How it works](#how-it-works)
@@ -26,7 +27,17 @@ It runs inside Omarchy's existing Quickshell bar, talks to devices locally over 
 - [Uninstall](#uninstall)
 - [Roadmap](#roadmap)
 - [Development](#development)
-- [Credits and license](#credits-and-license)
+- [Credits, inspiration and license](#credits-inspiration-and-license)
+
+## What sets it apart
+
+Several projects already bring Logitech settings to Linux or to Omarchy, and MX Unison builds on them (see [Credits](#credits-inspiration-and-license)). What it adds:
+
+- **One switch for the whole desk.** Logitech's Easy-Switch moves one device at a time, so going to the laptop usually means pressing a channel button on the mouse *and* on the keyboard. MX Unison treats your mouse, keyboard and other MX devices as one group. A single action moves all of them to the same computer: a button in the bar popup, a keyboard shortcut, or (experimentally) **the keyboard's own Easy-Switch key**. Press channel 2 on the keyboard and the mouse follows it.
+- **Channels that line up even when devices disagree.** Your laptop might be channel 1 on the keyboard and channel 3 on the mouse. MX Unison maps each computer to the right channel on each device, filling the mapping in from the host names stored on the devices and letting you adjust it by hand.
+- **Careful about leaving you without input.** Before anything moves, every device in the group must answer and support switching. Mice go first and the keyboard goes last. The helper confirms that each device actually left, and a partial failure says exactly which devices already moved. It never claims to be atomic.
+- **Designed to feel native to Omarchy.** The bar popup and settings window use Omarchy's own buttons, chips, toggles, colors and motion, so they follow your theme. The look is a quiet, terminal-style layout: sectioned pages, dotted leaders from each label to its control, block battery meters, and a popup you can run from the keyboard. A device page shows only the controls that device reports.
+- **Nothing extra to install or run as root.** It runs inside the Omarchy shell you already have. It adds no systemd service, needs no sudo during install and adds no keybindings unless you add them. The device helper starts only when it is needed.
 
 ## Who it is for
 
@@ -275,12 +286,15 @@ The suite covers configuration validation, switch ordering and channel mapping, 
 - [docs/architecture.md](docs/architecture.md): module responsibilities, runtime and validation gaps.
 - [CHANGELOG.md](CHANGELOG.md): changes from the inherited base.
 
-## Credits and license
+## Credits, inspiration and license
 
-GPL-2.0-or-later; see [LICENSE](LICENSE).
+MX Unison is licensed GPL-2.0-or-later; see [LICENSE](LICENSE).
 
-MX Unison is a fork of [Zach Wilke's MX Control](https://github.com/zachwilke/omarchy-mxcontrol), starting at commit `0968d77124ed72b207035e5f4f7b70509822a3d6`. Original copyright notices and history are retained. [OmaOptions](https://github.com/andreinita21/omaoptions) was reviewed as a reference; its installer is not used.
+It would not exist without these projects:
 
-Device access builds on [Solaar](https://github.com/pwr-Solaar/Solaar). The physical-follow listener was informed by [Solaar's Enhanced Easy-Switch proposal](https://github.com/pwr-Solaar/Solaar/pull/3339) and its [discussion](https://github.com/pwr-Solaar/Solaar/issues/3228); it does not include the complete proposed linking implementation.
+- **[MX Control](https://github.com/zachwilke/omarchy-mxcontrol)** by Zach Wilke is the foundation. MX Unison is a fork of it, starting at commit `0968d77124ed72b207035e5f4f7b70509822a3d6`, with its original copyright notices and commit history kept. MX Control established the approach this project still uses: a Quickshell plugin inside `omarchy-shell`, a single system-Python helper that owns HID++ access through Solaar, and a settings window that follows the Omarchy theme. It also provided the pointer, scroll, keyboard and profile settings, the software actions with per-app overrides and gestures, and single-device Easy-Switch with host renaming. MX Unison adds coordinated group switching, physical Easy-Switch following and the redesigned interface. If you only need device settings, MX Control is worth a look.
+- **[OmaOptions](https://github.com/andreinita21/omaoptions)** by [andreinita21](https://github.com/andreinita21) is an MIT-licensed, Options+-style Omarchy plugin with bar batteries, per-device settings tabs, gesture and thumb-wheel mapping, and a CLI. It was reviewed as a reference while shaping MX Unison's settings coverage and per-device layout. Its installer, which sets up packages, udev rules and a user service, is not used here.
+- **[Solaar](https://github.com/pwr-Solaar/Solaar)** supplies the HID++ device library that every hardware setting relies on. The physical-follow listener was informed by [Solaar's Enhanced Easy-Switch proposal](https://github.com/pwr-Solaar/Solaar/pull/3339) and its [discussion](https://github.com/pwr-Solaar/Solaar/issues/3228). MX Unison does not include that proposal's complete device-linking implementation.
+- **[Omarchy](https://omarchy.org)** provides the shell, UI components and theme tokens that the interface is built from.
 
 MX Unison is an independent project and is not affiliated with or endorsed by Logitech. Logitech, MX, Logi Bolt, Unifying, Easy-Switch and Flow are trademarks of Logitech.
