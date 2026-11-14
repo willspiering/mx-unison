@@ -41,12 +41,21 @@ Panel {
   readonly property var backlightSetting: Model.settingByNames(device, ["backlight", "backlight_level", "backlight-level"])
   readonly property var backlightOptions: backlightSetting && backlightSetting.kind === "choice" ? Model.choiceOptions(backlightSetting) : []
   readonly property var hostSetting: Model.settingByNames(device, ["change-host", "change_host"])
-  readonly property var hostOptions: Model.hostOptions(device)
+  // Channel chips named from the device's stored host names (raw text:
+  // every sink here is plain text, so escaping would show entities).
+  readonly property var hostOptions: {
+    if (!hostSetting) return []
+    var channels = Model.deviceChannels(device)
+    return [0, 1, 2].map(function(c) {
+      var info = channels[c] || {}
+      return { value: String(c), label: info.name ? info.name : String(c + 1), tooltip: info.paired === false ? "Not paired" : "" }
+    })
+  }
 
   // Switching the whole desk is the main daily action once a group exists.
   readonly property var deskTargets: mx ? Model.deskTargets(mx.switchConfig, devices) : []
   readonly property var deskOptions: deskTargets.filter(function(t) { return t.available }).map(function(t) {
-    return { value: String(t.target), label: t.label }
+    return { value: String(t.target), label: t.name || ("Computer " + t.target) }
   })
   readonly property string deskHere: {
     for (var i = 0; i < deskTargets.length; i++) if (deskTargets[i].here) return String(deskTargets[i].target)
@@ -71,18 +80,13 @@ Panel {
     return items
   }
 
-  readonly property string heroMeta: {
-    if (!mx) return "Checking"
-    if (!mx.installed) return "Needs Solaar"
-    if (mx.connecting && !canWrite) return "Connecting…"
-    if (!device) return "No devices connected here"
-    var parts = []
-    var battery = Model.batteryLabel(device)
-    if (battery) parts.push(battery)
-    var link = Model.connectionLabel(device)
-    if (link) parts.push(link)
-    if (device.online === false) parts.push("Offline")
-    return parts.join(" · ") || "Connected"
+  // One-word helper state for the header, like the settings sidebar.
+  readonly property string liveText: {
+    if (!mx) return strings.t("nav.reading")
+    if (!mx.installed) return strings.t("nav.solaarMissing")
+    if (mx.connecting && !canWrite) return strings.t("nav.connecting")
+    if (!devices.length) return strings.t("nav.noDevices")
+    return canWrite ? "● " + strings.t("nav.live") : "○ " + strings.t("nav.reading")
   }
 
   property string focusSection: "header"
@@ -91,13 +95,10 @@ Panel {
   property bool dropdownOpen: false
   readonly property bool headerHasCursor: cursorActive && focusSection === "header"
 
-  function hidName(item, fallback) {
-    var raw = ""
-    if (item && item.name) raw = String(item.name)
-    else if (fallback !== undefined && fallback !== null) raw = String(fallback)
-    if (raw.indexOf("&") === -1 && raw.indexOf("<") === -1 && raw.indexOf(">") === -1)
-      return raw
-    return raw.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;")
+  // Device-supplied names, for plain-text sinks only.
+  function plainName(item, fallback) {
+    if (item && item.name) return String(item.name)
+    return fallback !== undefined && fallback !== null ? String(fallback) : ""
   }
 
   function open() {
@@ -320,55 +321,54 @@ Panel {
         Column {
           id: column
           width: panelFlick.width
-          spacing: Style.space(14)
+          spacing: Style.space(18)
 
-          PanelHero {
-            id: hero
-            width: parent.width
-            // HID names are untrusted peripheral identity; never render as rich text.
-            title: device ? root.hidName(device, "MX Unison") : "MX Unison"
-            meta: root.heroMeta
-            detail: ""
-            foreground: root.foreground
-            fontFamily: root.fontFamily
-            iconOpacity: device && device.online !== false ? 1.0 : 0.5
-            iconComponent: Component {
-              MxIcon {
-                iconSize: Style.font.display
-                color: root.device && root.mx && root.mx.batteryLow ? root.urgent : root.foreground
-                cutoutColor: root.surface
-                lowBattery: !!(root.mx && root.mx.batteryLow)
-                badgeColor: root.urgent
-              }
-            }
-          }
-
-          Text {
-            visible: !!(mx && (mx.actionStatus !== "" || mx.lastError !== ""))
-            width: parent.width
-            text: mx && mx.actionStatus !== "" ? mx.actionStatus : (mx ? mx.lastError : "")
-            textFormat: Text.PlainText
-            color: mx && mx.lastError !== "" && mx.actionStatus === "" ? root.urgent : root.dim
-            font.family: root.fontFamily
-            font.pixelSize: Style.font.bodySmall
-            wrapMode: Text.WordWrap
-          }
-
+          // ── Header ──────────────────────────────────────────────────
           Column {
-            visible: !!(mx && !mx.installed)
             width: parent.width
             spacing: Style.space(8)
-
-            Text {
+            Item {
               width: parent.width
-              text: "MX Unison uses Solaar to talk to Logitech devices. Install it, then reconnect your devices."
+              implicitHeight: brand.implicitHeight
+              Text {
+                id: brand
+                text: "MX UNISON"
+                textFormat: Text.PlainText
+                color: root.foreground
+                font.family: root.fontFamily
+                font.pixelSize: Style.font.body
+                font.bold: true
+                font.letterSpacing: 2
+              }
+              Text {
+                anchors.right: parent.right
+                anchors.verticalCenter: brand.verticalCenter
+                text: root.liveText
+                textFormat: Text.PlainText
+                color: root.canWrite ? root.accent : root.dim
+                font.family: root.fontFamily
+                font.pixelSize: Style.font.caption
+              }
+            }
+            Rectangle { width: parent.width; height: 1; color: Qt.alpha(root.foreground, 0.12) }
+            // Last action or error, one line.
+            Text {
+              visible: !!(mx && (mx.actionStatus !== "" || mx.lastError !== ""))
+              width: parent.width
+              text: "› " + (mx && mx.actionStatus !== "" ? mx.actionStatus : (mx ? mx.lastError : ""))
               textFormat: Text.PlainText
-              color: root.dim
+              color: mx && mx.lastError !== "" && mx.actionStatus === "" ? root.urgent : root.dim
               font.family: root.fontFamily
-              font.pixelSize: Style.font.body
+              font.pixelSize: Style.font.caption
               wrapMode: Text.WordWrap
             }
+          }
 
+          // ── Setup problems ──────────────────────────────────────────
+          MxSection {
+            visible: !!(mx && !mx.installed)
+            title: "Setup"
+            hint: "MX Unison uses Solaar to talk to Logitech devices. Install it, then reconnect your devices."
             Button {
               text: "Install Solaar"
               bordered: true
@@ -380,21 +380,10 @@ Panel {
             }
           }
 
-          Column {
+          MxSection {
             visible: !!(mx && mx.installed && !mx.accessible && !mx.connecting)
-            width: parent.width
-            spacing: Style.space(8)
-
-            Text {
-              width: parent.width
-              text: "Solaar is installed, but your user cannot open the devices yet. Reconnect them, or reload the device rules."
-              textFormat: Text.PlainText
-              color: root.dim
-              font.family: root.fontFamily
-              font.pixelSize: Style.font.body
-              wrapMode: Text.WordWrap
-            }
-
+            title: "Access"
+            hint: "Solaar is installed, but your user cannot open the devices yet. Reconnect them, or reload the device rules."
             Button {
               text: "Reload udev"
               bordered: true
@@ -406,56 +395,110 @@ Panel {
             }
           }
 
-          // Devices: one row each, battery on the right. Selecting one picks
-          // which device the quick settings below apply to.
-          Column {
-            visible: root.devices.length > 1
-            width: parent.width
-            spacing: Style.space(4)
-
-            Repeater {
-              model: root.devices
-              Button {
-                id: deviceRow
-                required property var modelData
-                required property int index
-                width: parent ? parent.width : implicitWidth
-                leftAlign: true
-                bordered: selected
-                text: root.hidName(modelData, "Device")
-                selected: !!(device && String(device.id) === String(modelData.id))
-                hasCursor: root.cursorActive && root.focusSection === "devices" && root.cursorIndex === index
-                foreground: root.foreground
-                fontFamily: root.fontFamily
-                onClicked: root.chooseDevice(modelData.id)
-                onHovered: function(on) { if (on) root.setCursor("devices", index) }
-
-                Text {
-                  anchors.right: parent.right
-                  anchors.rightMargin: Style.spacing.controlPaddingX
-                  anchors.verticalCenter: parent.verticalCenter
-                  text: deviceRow.modelData.online === false ? "Offline" : Model.batteryLabel(deviceRow.modelData)
-                  textFormat: Text.PlainText
-                  color: Model.batteryLow(deviceRow.modelData) ? root.urgent : root.dim
-                  font.family: root.fontFamily
-                  font.pixelSize: Style.font.caption
+          // ── Devices: pick which one the quick settings apply to ─────
+          MxSection {
+            visible: root.devices.length > 0
+            title: strings.t("nav.devices")
+            Column {
+              width: parent.width
+              spacing: Style.space(2)
+              Repeater {
+                model: root.devices
+                Item {
+                  id: deviceRow
+                  required property var modelData
+                  required property int index
+                  readonly property bool selected: !!(device && String(device.id) === String(modelData.id))
+                  readonly property bool cursor: root.cursorActive && root.focusSection === "devices" && root.cursorIndex === index
+                  readonly property int battery: Model.batteryPercent(modelData)
+                  width: parent.width
+                  implicitHeight: Style.space(34)
+                  Rectangle {
+                    anchors.fill: parent
+                    anchors.leftMargin: -Style.space(8)
+                    anchors.rightMargin: -Style.space(8)
+                    radius: Style.cornerRadius
+                    color: deviceRow.selected ? Qt.alpha(root.accent, 0.12)
+                      : (deviceRow.cursor || rowMouse.containsMouse) ? Style.hoverFillFor(root.foreground, root.accent) : "transparent"
+                    Behavior on color { ColorAnimation { duration: Style.duration(100) } }
+                    Rectangle {
+                      visible: deviceRow.selected
+                      width: 2
+                      height: parent.height - Style.space(10)
+                      anchors.verticalCenter: parent.verticalCenter
+                      color: root.accent
+                    }
+                  }
+                  Row {
+                    anchors.verticalCenter: parent.verticalCenter
+                    width: parent.width
+                    spacing: Style.space(10)
+                    opacity: deviceRow.modelData.online === false ? 0.55 : 1
+                    Text {
+                      width: Style.space(18)
+                      anchors.verticalCenter: parent.verticalCenter
+                      text: Model.kindIcon(deviceRow.modelData)
+                      textFormat: Text.PlainText
+                      color: deviceRow.selected ? root.accent : root.dim
+                      font.family: root.fontFamily
+                      font.pixelSize: Style.font.body
+                    }
+                    Text {
+                      width: parent.width - Style.space(18) - state.width - parent.spacing * 2
+                      anchors.verticalCenter: parent.verticalCenter
+                      text: root.plainName(deviceRow.modelData, "Device")
+                      textFormat: Text.PlainText
+                      color: deviceRow.selected ? root.accent : root.foreground
+                      font.family: root.fontFamily
+                      font.pixelSize: Style.font.body
+                      font.bold: deviceRow.selected
+                      elide: Text.ElideRight
+                    }
+                    Item {
+                      id: state
+                      width: Math.max(meter.implicitWidth, offline.implicitWidth)
+                      height: parent.height
+                      anchors.verticalCenter: parent.verticalCenter
+                      MxMeter {
+                        id: meter
+                        anchors.right: parent.right
+                        anchors.verticalCenter: parent.verticalCenter
+                        visible: deviceRow.modelData.online !== false && value >= 0
+                        value: deviceRow.battery / 100
+                        cells: 5
+                        suffix: deviceRow.battery + "%"
+                        warn: Model.batteryLow(deviceRow.modelData)
+                      }
+                      Text {
+                        id: offline
+                        visible: deviceRow.modelData.online === false
+                        anchors.right: parent.right
+                        anchors.verticalCenter: parent.verticalCenter
+                        text: "offline"
+                        textFormat: Text.PlainText
+                        color: root.dim
+                        font.family: root.fontFamily
+                        font.pixelSize: Style.font.caption
+                      }
+                    }
+                  }
+                  MouseArea {
+                    id: rowMouse
+                    anchors.fill: parent
+                    hoverEnabled: true
+                    cursorShape: Qt.PointingHandCursor
+                    onClicked: root.chooseDevice(deviceRow.modelData.id)
+                    onContainsMouseChanged: if (containsMouse) root.setCursor("devices", deviceRow.index)
+                  }
                 }
               }
             }
           }
 
-          // Whole-desk switching, named after your computers.
-          Column {
+          // ── Whole-desk switching, named after your computers ────────
+          MxSection {
             visible: root.showDesk
-            width: parent.width
-            spacing: Style.space(8)
-
-            PanelSectionHeader {
-              text: strings.t("popup.switchDesk")
-              foreground: root.foreground
-              fontFamily: root.fontFamily
-            }
-
+            title: strings.t("popup.switchDesk")
             ButtonGroup {
               width: parent.width
               options: root.deskOptions
@@ -469,18 +512,10 @@ Panel {
             }
           }
 
-          // No group yet: move just this device.
-          Column {
+          // ── No group yet: move just this device ─────────────────────
+          MxSection {
             visible: root.showHosts
-            width: parent.width
-            spacing: Style.space(8)
-
-            PanelSectionHeader {
-              text: strings.t("popup.switchDevice")
-              foreground: root.foreground
-              fontFamily: root.fontFamily
-            }
-
+            title: strings.t("popup.switchDevice")
             ButtonGroup {
               width: parent.width
               options: root.hostOptions
@@ -494,39 +529,17 @@ Panel {
             }
           }
 
-          // Everyday settings for the selected device.
-          Column {
+          // ── Everyday settings for the selected device ───────────────
+          MxSection {
             visible: root.quickItems.length > 0
-            width: parent.width
-            spacing: Style.space(10)
+            title: root.plainName(device, "Device")
 
-            Column {
+            MxField {
               visible: root.quickItems.indexOf("dpi") >= 0
-              width: parent.width
-              spacing: Style.space(6)
-
-              Item {
-                width: parent.width
-                height: dpiTitle.implicitHeight
-                Text {
-                  id: dpiTitle
-                  text: strings.t("popup.sensitivity")
-                  textFormat: Text.PlainText
-                  color: root.foreground
-                  font.family: root.fontFamily
-                  font.pixelSize: Style.font.body
-                  font.bold: true
-                }
-                Text {
-                  anchors.right: parent.right
-                  text: root.dpiValue !== "" ? root.dpiValue + " DPI" : ""
-                  textFormat: Text.PlainText
-                  color: root.dim
-                  font.family: root.fontFamily
-                  font.pixelSize: Style.font.body
-                }
-              }
-
+              stacked: true
+              label: strings.t("popup.sensitivity").toLowerCase() + (root.dpiValue !== "" ? "  ·  " + root.dpiValue + " dpi" : "")
+              hasCursor: root.quickHasCursor("dpi")
+              onHovered: function(on) { if (on) root.setCursor("quick", root.quickItems.indexOf("dpi")) }
               ButtonGroup {
                 width: parent.width
                 options: root.dpiOptions
@@ -536,66 +549,47 @@ Panel {
                 fontFamily: root.fontFamily
                 cursorIndex: root.quickHasCursor("dpi") ? Math.max(0, root.dpiOptions.map(function(o) { return o.value }).indexOf(root.dpiValue)) : -1
                 onChanged: function(value) { if (root.dpiSetting) root.writeSetting(root.dpiSetting, Number(value)) }
-                onHovered: function(index, on) { if (on) root.setCursor("quick", root.quickItems.indexOf("dpi")) }
               }
             }
 
-            Toggle {
+            MxField {
               visible: root.quickItems.indexOf("smart") >= 0
-              width: parent.width
+              switchable: true
               label: "SmartShift"
-              description: strings.t("popup.smartshiftHelp")
+              help: strings.t("popup.smartshiftHelp")
               checked: root.smartState.on
               hasCursor: root.quickHasCursor("smart")
-              foreground: root.foreground
-              fontFamily: root.fontFamily
-              accent: root.accent
-              titleSize: Style.font.body
-              onClicked: root.writeToggle(root.smartSetting)
+              onToggled: root.writeToggle(root.smartSetting)
               onHovered: function(on) { if (on) root.setCursor("quick", root.quickItems.indexOf("smart")) }
             }
 
-            Toggle {
+            MxField {
               visible: root.quickItems.indexOf("fn") >= 0
-              width: parent.width
-              label: root.fnSetting && root.fnSetting.label ? root.fnSetting.label : "Swap Fx function"
-              description: strings.t("popup.fnHelp")
+              switchable: true
+              label: root.fnSetting && root.fnSetting.label ? String(root.fnSetting.label) : "Swap Fx function"
+              help: strings.t("popup.fnHelp")
               checked: root.fnSetting ? Model.boolValue(root.fnSetting) : false
               hasCursor: root.quickHasCursor("fn")
-              foreground: root.foreground
-              fontFamily: root.fontFamily
-              accent: root.accent
-              titleSize: Style.font.body
-              onClicked: root.writeToggle(root.fnSetting)
+              onToggled: root.writeToggle(root.fnSetting)
               onHovered: function(on) { if (on) root.setCursor("quick", root.quickItems.indexOf("fn")) }
             }
 
-            Toggle {
+            MxField {
               visible: root.quickItems.indexOf("backlight") >= 0 && !!root.backlightSetting && root.backlightSetting.kind === "toggle"
-              width: parent.width
-              label: "Backlight"
+              switchable: true
+              label: strings.t("popup.backlight")
               checked: root.backlightSetting ? Model.boolValue(root.backlightSetting) : false
               hasCursor: root.quickHasCursor("backlight")
-              foreground: root.foreground
-              fontFamily: root.fontFamily
-              accent: root.accent
-              titleSize: Style.font.body
-              onClicked: root.writeToggle(root.backlightSetting)
+              onToggled: root.writeToggle(root.backlightSetting)
               onHovered: function(on) { if (on) root.setCursor("quick", root.quickItems.indexOf("backlight")) }
             }
 
-            Column {
+            MxField {
               visible: root.quickItems.indexOf("backlight") >= 0 && root.backlightOptions.length > 0
-              width: parent.width
-              spacing: Style.space(6)
-              Text {
-                text: "Backlight"
-                textFormat: Text.PlainText
-                color: root.foreground
-                font.family: root.fontFamily
-                font.pixelSize: Style.font.body
-                font.bold: true
-              }
+              stacked: true
+              label: strings.t("popup.backlight").toLowerCase()
+              hasCursor: root.quickHasCursor("backlight")
+              onHovered: function(on) { if (on) root.setCursor("quick", root.quickItems.indexOf("backlight")) }
               ButtonGroup {
                 width: parent.width
                 options: root.backlightOptions
@@ -605,28 +599,14 @@ Panel {
                 fontFamily: root.fontFamily
                 cursorIndex: root.quickHasCursor("backlight") ? Math.max(0, root.backlightOptions.map(function(o) { return o.value }).indexOf(Model.choiceId(root.backlightSetting))) : -1
                 onChanged: function(value) { if (root.backlightSetting) root.writeSetting(root.backlightSetting, value) }
-                onHovered: function(index, on) { if (on) root.setCursor("quick", root.quickItems.indexOf("backlight")) }
               }
             }
           }
 
-          Button {
-            visible: root.canWrite
-            text: strings.t("popup.settings")
-            bordered: true
-            width: parent.width
-            hasCursor: root.cursorActive && root.focusSection === "settings"
-            foreground: root.foreground
-            fontFamily: root.fontFamily
-            onClicked: root.openSettings()
-            onHovered: function(on) { if (on) root.setCursor("settings", 0) }
-          }
-
-          Column {
+          // ── Still reading ───────────────────────────────────────────
+          MxSection {
             visible: !!(mx && mx.installed && (mx.accessible || mx.connecting) && !root.canWrite)
-            width: parent.width
-            spacing: Style.space(8)
-
+            title: strings.t("page.status")
             Text {
               width: parent.width
               text: {
@@ -648,43 +628,40 @@ Panel {
               font.pixelSize: Style.font.caption
               wrapMode: Text.WordWrap
             }
-
-            Row {
+            MxMeter {
               visible: !!(mx && mx.daemonWanted && !mx.lastError)
+              value: (mx && mx.readPercent ? mx.readPercent : 0) / 100
+              cells: 20
+              suffix: (mx && mx.readPercent ? mx.readPercent : 0) + "%"
+            }
+          }
+
+          // ── Footer ──────────────────────────────────────────────────
+          Column {
+            width: parent.width
+            spacing: Style.space(8)
+            Rectangle { width: parent.width; height: 1; color: Qt.alpha(root.foreground, 0.12) }
+            Button {
+              visible: root.canWrite
+              text: strings.t("popup.settings")
+              iconText: "󰒓"
+              leftAlign: true
+              bordered: true
               width: parent.width
-              spacing: Style.space(8)
-
-              Item {
-                width: parent.width - pctLabel.implicitWidth - parent.spacing
-                height: Style.space(8)
-
-                Rectangle {
-                  anchors.fill: parent
-                  radius: height / 2
-                  color: Qt.rgba(root.foreground.r, root.foreground.g, root.foreground.b, 0.12)
-                }
-
-                Rectangle {
-                  anchors.left: parent.left
-                  anchors.verticalCenter: parent.verticalCenter
-                  height: parent.height
-                  radius: height / 2
-                  color: root.foreground
-                  width: Math.max(parent.height, parent.width * ((mx && mx.readPercent ? mx.readPercent : 0) / 100))
-
-                  Behavior on width { NumberAnimation { duration: Style.duration(220); easing.type: Easing.OutCubic } }
-                }
-              }
-
-              Text {
-                id: pctLabel
-                anchors.verticalCenter: parent.verticalCenter
-                text: (mx && mx.readPercent ? mx.readPercent : 0) + "%"
-                color: root.dim
-                font.family: root.fontFamily
-                font.pixelSize: Style.font.caption
-                font.bold: true
-              }
+              hasCursor: root.cursorActive && root.focusSection === "settings"
+              foreground: root.foreground
+              fontFamily: root.fontFamily
+              onClicked: root.openSettings()
+              onHovered: function(on) { if (on) root.setCursor("settings", 0) }
+            }
+            Text {
+              width: parent.width
+              horizontalAlignment: Text.AlignHCenter
+              text: strings.t("popup.keys")
+              textFormat: Text.PlainText
+              color: Qt.alpha(root.foreground, 0.35)
+              font.family: root.fontFamily
+              font.pixelSize: Style.font.caption
             }
           }
         }

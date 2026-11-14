@@ -21,11 +21,14 @@ FocusScope {
   property bool switchable: false
   property bool checked: false
   property bool busy: false
+  // Panel-cursor highlight for popups that drive their own keyboard cursor.
+  property bool hasCursor: false
   // Stack the control under the label instead of beside it (wide controls).
   property bool stacked: false
   readonly property real labelWidth: stacked ? width : Math.min(Style.space(230), Math.round(width * 0.38))
   default property alias control: slot.data
   signal toggled()
+  signal hovered(bool isHovered)
 
   width: parent ? parent.width : implicitWidth
   // Top row: label (with leader) beside the control. Help runs full width
@@ -43,14 +46,14 @@ FocusScope {
 
   // Hover/focus wash for toggle rows, so the whole row reads as one control.
   Rectangle {
-    visible: field.switchable
+    visible: field.switchable || field.hasCursor
     anchors.fill: parent
     anchors.leftMargin: -Style.space(8)
     anchors.rightMargin: -Style.space(8)
     anchors.topMargin: -Style.space(4)
     anchors.bottomMargin: -Style.space(4)
     radius: Style.cornerRadius
-    color: field.activeFocus || rowMouse.containsMouse ? Style.hoverFillFor(Color.foreground, Color.accent) : "transparent"
+    color: field.activeFocus || field.hasCursor || rowMouse.containsMouse ? Style.hoverFillFor(Color.foreground, Color.accent) : "transparent"
     Behavior on color { ColorAnimation { duration: Style.duration(100) } }
   }
 
@@ -145,5 +148,9 @@ FocusScope {
       field.forceActiveFocus()
       if (!field.busy) field.toggled()
     }
+  }
+
+  HoverHandler {
+    onHoveredChanged: field.hovered(hovered)
   }
 }

@@ -136,5 +136,7 @@
   "actions.hardwareHelp": "Hardware remaps apply in every app and on every computer. Solaar rule handling is for external Solaar rules; leave it Regular when using a software action.",
   "actions.remap": "acts as",
   "actions.ruleHandling": "Solaar handling",
-  "actions.ruleHelp": "Regular unless you use your own Solaar rules for this control."
+  "actions.ruleHelp": "Regular unless you use your own Solaar rules for this control.",
+  "popup.backlight": "Backlight",
+  "popup.keys": "\u2191\u2193 move \u00b7 \u2190\u2192 adjust \u00b7 \u23ce select \u00b7 r refresh"
 }
