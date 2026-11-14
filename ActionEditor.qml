@@ -226,12 +226,13 @@ Column {
         Keys.onReturnPressed: editor.toggle(entry.modelData.key)
         Keys.onEnterPressed: editor.toggle(entry.modelData.key)
         Keys.onSpacePressed: editor.toggle(entry.modelData.key)
-        Rectangle {
+        MxStateSurface {
+          id: rowSurface
           anchors.fill: parent
-          radius: Style.cornerRadius
-          color: entry.isOpen ? Qt.alpha(Color.accent, 0.08)
-            : (rowItem.activeFocus || rowMouse.containsMouse) ? Style.hoverFillFor(Color.foreground, Color.accent) : "transparent"
-          Behavior on color { ColorAnimation { duration: Style.duration(100) } }
+          selected: entry.isOpen
+          hot: rowMouse.containsMouse
+          focused: rowItem.activeFocus
+          pressed: rowMouse.pressed
         }
         Text {
           id: chevron
@@ -239,7 +240,7 @@ Column {
           anchors.verticalCenter: parent.verticalCenter
           text: "󰅂"
           rotation: entry.isOpen ? 90 : 0
-          color: entry.isOpen ? Color.accent : editor.muted
+          color: entry.isOpen ? rowSurface.contentColor : editor.muted
           font.family: Style.font.family
           font.pixelSize: Style.font.caption
           Behavior on rotation { NumberAnimation { duration: Style.duration(120); easing.type: Easing.OutCubic } }
@@ -255,9 +256,10 @@ Column {
             width: Math.min(implicitWidth, parent.width)
             text: String(entry.modelData.label)
             textFormat: Text.PlainText
-            color: entry.isOpen ? Color.accent : Color.foreground
+            color: rowSurface.contentColor
             font.family: Style.font.family
             font.pixelSize: Style.font.body
+            font.bold: rowSurface.contentBold
             elide: Text.ElideRight
           }
           Text {
@@ -315,22 +317,16 @@ Column {
             visible: !entry.hardwareOnly
             label: strings.t("actions.for")
             help: editor.openState.binding ? "" : strings.t("actions.forHelp")
-            Flow {
+            // "+ app" is the last chip, so the row wraps as one group.
+            MxChips {
               width: parent.width
-              spacing: Style.space(6)
-              ButtonGroup {
-                options: [{ value: "", label: strings.t("actions.allApps") }].concat(editor.openState.overrides.map(function(a) { return { value: a, label: a } }))
-                  .concat(editor.scope !== "" && editor.openState.overrides.indexOf(editor.scope) < 0 ? [{ value: editor.scope, label: editor.scope + " *" }] : [])
-                value: editor.addingApp ? "\u0000" : editor.scope
-                onChanged: function(value) { editor.load(editor.openKey, value) }
-              }
-              Button {
-                visible: !!editor.openState.binding && !editor.addingApp
-                text: strings.t("actions.addApp")
-                iconText: "󰐕"
-                bordered: true
-                focusable: true
-                onClicked: editor.addingApp = true
+              options: [{ value: "", label: strings.t("actions.allApps") }].concat(editor.openState.overrides.map(function(a) { return { value: a, label: a } }))
+                .concat(editor.scope !== "" && editor.openState.overrides.indexOf(editor.scope) < 0 ? [{ value: editor.scope, label: editor.scope + " *" }] : [])
+                .concat(!!editor.openState.binding && !editor.addingApp ? [{ value: "\u0001add", label: "+ " + strings.t("actions.addApp") }] : [])
+              value: editor.addingApp ? "\u0000" : editor.scope
+              onChanged: function(value) {
+                if (value === "\u0001add") editor.addingApp = true
+                else editor.load(editor.openKey, value)
               }
             }
           }
@@ -384,7 +380,7 @@ Column {
           MxField {
             visible: !entry.hardwareOnly && editor.openState.gestures
             label: strings.t("actions.does")
-            ButtonGroup {
+            MxChips {
               options: [{ value: "shortcut", label: strings.t("actions.modeShortcut") }, { value: "gesture", label: strings.t("actions.modeGesture") }]
               value: editor.mode
               onChanged: function(value) { editor.mode = value }

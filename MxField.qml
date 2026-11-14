@@ -50,12 +50,12 @@ FocusScope {
   Keys.onEnterPressed: if (switchable && !busy) field.toggled()
 
   // Hover/focus wash for toggle rows, so the whole row reads as one control.
-  Rectangle {
+  MxStateSurface {
     visible: field.switchable || field.hasCursor
     anchors.fill: parent
-    radius: Style.cornerRadius
-    color: field.activeFocus || field.hasCursor || rowMouse.containsMouse ? Style.hoverFillFor(Color.foreground, Color.accent) : "transparent"
-    Behavior on color { ColorAnimation { duration: Style.duration(100) } }
+    hot: field.hasCursor || rowMouse.containsMouse
+    focused: field.activeFocus
+    pressed: rowMouse.pressed
   }
 
   Row {

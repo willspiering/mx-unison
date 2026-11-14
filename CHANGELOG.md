@@ -21,6 +21,9 @@
 - The Buttons section lists every control with a one-line summary of what it does (default, a shortcut, gestures, a hardware remap, app overrides). Clicking a control opens its editor inline: app chips for All apps and overrides, shortcut steps with Record (which appends, for sequences) and presets, a gesture pad, and the control's hardware remap and Solaar handling. Unsaved edits are marked.
 - Restyled the bar popup to match the settings window: uppercase section rules, a device list with battery meters and a selection bar, quick settings as rows with inline help, block-character read progress, and a key-hint footer. Behavior and keyboard navigation are unchanged. Computer and channel names in the popup are no longer shown HTML-escaped.
 - Consistent spacing: rows pad their content inside hover, cursor and selection highlights (previously the highlight bled outside the row and was clipped, so icons touched its edge), and section titles, hints, rows and buttons share one gutter.
+- One active/hover style everywhere: selectable rows (popup devices, sidebar devices and section links, Desk devices, button rows, toggle rows) share MxStateSurface, which follows Omarchy Button's states and theme tokens, so an active row looks like a selected chip. The accent side bars are gone.
+- Chip rows (channels, computers, DPI presets, backlight, app overrides) wrap and elide instead of running past the window edge.
+- The sidebar keeps the section you jumped to highlighted, even when it is near the end of the page.
 - Fixed settings dropdowns that stopped following the device after being used once.
 - Fixed the selected device snapping back to the one last chosen in the popup: that choice is saved as the preferred device and used to override every later pick. A pick made this session now wins; the saved preference only seeds the selection.
 

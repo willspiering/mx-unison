@@ -419,21 +419,14 @@ Panel {
                   readonly property int battery: Model.batteryPercent(modelData)
                   width: parent.width
                   implicitHeight: Style.space(38)
-                  Rectangle {
+                  MxStateSurface {
+                    id: rowSurface
                     anchors.fill: parent
-                    radius: Style.cornerRadius
-                    color: deviceRow.selected ? Qt.alpha(root.accent, 0.12)
-                      : (deviceRow.cursor || rowMouse.containsMouse) ? Style.hoverFillFor(root.foreground, root.accent) : "transparent"
-                    Behavior on color { ColorAnimation { duration: Style.duration(100) } }
-                    Rectangle {
-                      visible: deviceRow.selected
-                      x: Style.space(3)
-                      width: 2
-                      height: parent.height - Style.space(14)
-                      radius: 1
-                      anchors.verticalCenter: parent.verticalCenter
-                      color: root.accent
-                    }
+                    selected: deviceRow.selected
+                    hot: deviceRow.cursor || rowMouse.containsMouse
+                    pressed: rowMouse.pressed
+                    foreground: root.foreground
+                    accent: root.accent
                   }
                   Row {
                     x: Style.space(10)
@@ -446,7 +439,7 @@ Panel {
                       anchors.verticalCenter: parent.verticalCenter
                       text: Model.kindIcon(deviceRow.modelData)
                       textFormat: Text.PlainText
-                      color: deviceRow.selected ? root.accent : root.dim
+                      color: deviceRow.selected ? rowSurface.contentColor : root.dim
                       font.family: root.fontFamily
                       font.pixelSize: Style.font.body
                     }
@@ -455,10 +448,10 @@ Panel {
                       anchors.verticalCenter: parent.verticalCenter
                       text: root.plainName(deviceRow.modelData, "Device")
                       textFormat: Text.PlainText
-                      color: deviceRow.selected ? root.accent : root.foreground
+                      color: rowSurface.contentColor
                       font.family: root.fontFamily
                       font.pixelSize: Style.font.body
-                      font.bold: deviceRow.selected
+                      font.bold: rowSurface.contentBold
                       elide: Text.ElideRight
                     }
                     Item {
@@ -507,7 +500,7 @@ Panel {
             visible: root.showDesk
             title: strings.t("popup.switchDesk")
             MxInset {
-            ButtonGroup {
+            MxChips {
               width: parent.width
               options: root.deskOptions
               value: root.deskHere
@@ -526,7 +519,7 @@ Panel {
             visible: root.showHosts
             title: strings.t("popup.switchDevice")
             MxInset {
-            ButtonGroup {
+            MxChips {
               width: parent.width
               options: root.hostOptions
               value: hostSetting ? Model.choiceId(hostSetting) : ""
@@ -551,7 +544,7 @@ Panel {
               label: strings.t("popup.sensitivity").toLowerCase() + (root.dpiValue !== "" ? "  ·  " + root.dpiValue + " dpi" : "")
               hasCursor: root.quickHasCursor("dpi")
               onHovered: function(on) { if (on) root.setCursor("quick", root.quickItems.indexOf("dpi")) }
-              ButtonGroup {
+              MxChips {
                 width: parent.width
                 options: root.dpiOptions
                 value: root.dpiValue
@@ -601,7 +594,7 @@ Panel {
               label: strings.t("popup.backlight").toLowerCase()
               hasCursor: root.quickHasCursor("backlight")
               onHovered: function(on) { if (on) root.setCursor("quick", root.quickItems.indexOf("backlight")) }
-              ButtonGroup {
+              MxChips {
                 width: parent.width
                 options: root.backlightOptions
                 value: root.backlightSetting ? Model.choiceId(root.backlightSetting) : ""

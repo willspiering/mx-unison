@@ -37,7 +37,7 @@ Item {
     if (extraSettings.length) out.push({ key: "more", label: strings.t("section.more") })
     return out
   }
-  onPageChanged: flick.contentY = 0
+  onPageChanged: { jumpedSection = ""; flick.contentY = 0 }
 
   function showDesk() {
     page = "desk"
@@ -53,11 +53,17 @@ Item {
       if (kids[i].anchorKey === key && kids[i].visible) return kids[i]
     return null
   }
+  // The section chosen from the sidebar stays highlighted until the user
+  // scrolls themselves, even when the page cannot scroll it to the top.
+  property string jumpedSection: ""
+  property real jumpTarget: -1
   function jumpTo(key) {
     if (key === "more") showMore = true
     var item = sectionItem(key)
     if (!item) return
     var target = Math.max(0, Math.min(item.y - Style.space(20), flick.contentHeight - flick.height))
+    jumpedSection = key
+    jumpTarget = target
     jumpAnim.stop()
     if (Style.reduceMotion) { flick.contentY = target; return }
     jumpAnim.to = target
@@ -65,6 +71,7 @@ Item {
   }
   // The section at the top of the viewport, for the sidebar highlight.
   readonly property string activeSection: {
+    if (jumpedSection !== "") return jumpedSection
     var y = flick.contentY + Style.space(48)
     var current = deviceSections.length ? deviceSections[0].key : ""
     if (flick.contentHeight - flick.height - flick.contentY < 2 && deviceSections.length) {
@@ -393,17 +400,11 @@ Item {
                   }
                   Repeater {
                     model: navDevice.current ? root.deviceSections : []
-                    Button {
+                    SectionLink {
                       required property var modelData
-                      width: parent.width
-                      leftAlign: true
-                      horizontalPadding: Style.space(34)
-                      verticalPadding: Style.space(3)
-                      text: modelData.label
-                      fontSize: Style.font.caption
-                      foreground: root.activeSection === modelData.key ? root.accent : root.dim
-                      focusable: true
-                      onClicked: root.jumpTo(modelData.key)
+                      label: modelData.label
+                      selected: root.activeSection === modelData.key
+                      onActivated: root.jumpTo(modelData.key)
                     }
                   }
                 }
@@ -544,7 +545,11 @@ Item {
           clip: true
           boundsBehavior: Flickable.StopAtBounds
           flickableDirection: Flickable.VerticalFlick
-          onMovementStarted: jumpAnim.stop()
+          onMovementStarted: { jumpAnim.stop(); root.jumpedSection = "" }
+          onContentYChanged: {
+            if (root.jumpedSection !== "" && !jumpAnim.running && Math.abs(contentY - root.jumpTarget) > 2)
+              root.jumpedSection = ""
+          }
           ScrollBar.vertical: ScrollBar { policy: ScrollBar.AsNeeded }
           onContentHeightChanged: {
             if (root.pendingJump !== "" && root.page === "device" && root.sectionItem(root.pendingJump)) {
@@ -634,7 +639,7 @@ Item {
               MxField {
                 visible: !!dpiSetting && Model.dpiPresets(dpiSetting).length > 0
                 label: strings.t("field.presets")
-                ButtonGroup {
+                MxChips {
                   width: parent.width
                   options: dpiSetting ? Model.dpiPresets(dpiSetting) : []
                   value: dpiSetting ? String(Math.round(Model.numericValue(dpiSetting, 0))) : ""
@@ -908,21 +913,13 @@ Item {
     Keys.onReturnPressed: nav.activated()
     Keys.onEnterPressed: nav.activated()
     Keys.onSpacePressed: nav.activated()
-    Rectangle {
+    MxStateSurface {
+      id: navSurface
       anchors.fill: parent
-      radius: Style.cornerRadius
-      color: nav.selected ? Qt.alpha(root.accent, 0.12)
-        : (nav.activeFocus || navMouse.containsMouse) ? Style.hoverFillFor(root.foreground, root.accent) : "transparent"
-      Behavior on color { ColorAnimation { duration: Style.duration(100) } }
-      Rectangle {
-        visible: nav.selected
-        x: Style.space(3)
-        width: 2
-        radius: 1
-        height: parent.height - Style.space(14)
-        anchors.verticalCenter: parent.verticalCenter
-        color: root.accent
-      }
+      selected: nav.selected
+      hot: navMouse.containsMouse
+      focused: nav.activeFocus
+      pressed: navMouse.pressed
     }
     Text {
       id: navGlyph
@@ -931,7 +928,7 @@ Item {
       width: Style.space(18)
       text: nav.glyph
       textFormat: Text.PlainText
-      color: nav.selected ? root.accent : root.dim
+      color: nav.selected ? navSurface.contentColor : root.dim
       font.family: root.fontFamily
       font.pixelSize: Style.font.body
     }
@@ -946,10 +943,10 @@ Item {
         width: parent.width
         text: nav.label
         textFormat: Text.PlainText
-        color: nav.selected ? root.accent : root.foreground
+        color: navSurface.contentColor
         font.family: root.fontFamily
         font.pixelSize: Style.font.body
-        font.bold: nav.selected
+        font.bold: navSurface.contentBold
         elide: Text.ElideRight
       }
       Row {
@@ -978,6 +975,51 @@ Item {
     }
   }
 
+  // Sidebar jump link to a section of the device page. Same surface and
+  // states as every other row; indented under its device.
+  component SectionLink: Item {
+    id: link
+    property string label: ""
+    property bool selected: false
+    signal activated()
+    width: parent ? parent.width : implicitWidth
+    implicitHeight: linkText.implicitHeight + Style.space(10)
+    activeFocusOnTab: true
+    Keys.onReturnPressed: link.activated()
+    Keys.onEnterPressed: link.activated()
+    Keys.onSpacePressed: link.activated()
+    MxStateSurface {
+      id: linkSurface
+      x: Style.space(28)
+      width: parent.width - x
+      height: parent.height
+      selected: link.selected
+      hot: linkMouse.containsMouse
+      focused: link.activeFocus
+      pressed: linkMouse.pressed
+    }
+    Text {
+      id: linkText
+      x: linkSurface.x + Style.space(10)
+      width: linkSurface.width - Style.space(20)
+      anchors.verticalCenter: parent.verticalCenter
+      text: link.label
+      textFormat: Text.PlainText
+      color: link.selected ? linkSurface.contentColor : root.dim
+      font.family: root.fontFamily
+      font.pixelSize: Style.font.caption
+      font.bold: linkSurface.contentBold
+      elide: Text.ElideRight
+    }
+    MouseArea {
+      id: linkMouse
+      anchors.fill: linkSurface
+      hoverEnabled: true
+      cursorShape: Qt.PointingHandCursor
+      onClicked: link.activated()
+    }
+  }
+
   // Desk page device line: the way into a device's settings.
   component DeviceRow: Item {
     id: deviceRow
@@ -990,11 +1032,11 @@ Item {
     Keys.onReturnPressed: deviceRow.activated()
     Keys.onEnterPressed: deviceRow.activated()
     Keys.onSpacePressed: deviceRow.activated()
-    Rectangle {
+    MxStateSurface {
       anchors.fill: parent
-      radius: Style.cornerRadius
-      color: deviceRow.activeFocus || rowMouse.containsMouse ? Style.hoverFillFor(root.foreground, root.accent) : "transparent"
-      Behavior on color { ColorAnimation { duration: Style.duration(100) } }
+      hot: rowMouse.containsMouse
+      focused: deviceRow.activeFocus
+      pressed: rowMouse.pressed
     }
     Row {
       x: Style.space(10)

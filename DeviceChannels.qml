@@ -42,7 +42,7 @@ Column {
     visible: !!root.setting
     label: strings.t("device.channel")
     help: root.grouped ? strings.t("device.groupedHelp") : strings.t("device.help")
-    ButtonGroup {
+    MxChips {
       width: parent.width
       options: [0, 1, 2].map(function(c) {
         var info = root.channels[c] || {}
